@@ -6,8 +6,8 @@ import '@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import '@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol';
 import '@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol';
 
-import '../interfaces/IAIRA.sol';
-import '../interfaces/IPriceOracleAggregator.sol';
+import './interfaces/IAIRA.sol';
+import './interfaces/IPriceOracleAggregator.sol';
 
 /**
  * @title LendingMarket
@@ -48,6 +48,9 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         uint256 debtPortion; // accumulated debt interest
     }
 
+    /// @notice An event thats emitted when user deposits collateral
+    event Deposit(address indexed user, address indexed token, uint256 amount);
+
     /// @notice AIRA token address
     IAIRA public aira;
     /// @notice lending market settings
@@ -56,6 +59,8 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     address[] public collateralTokens;
     /// @notice collateral settings
     mapping(address => CollateralSetting) public collateralSettings; // token => collateral setting
+    /// @notice users collateral position
+    mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => position
 
     /**
      * @notice Initializer.
@@ -138,6 +143,29 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      */
     function allCollateralTokens() external view returns (address[] memory) {
         return collateralTokens;
+    }
+
+    /**
+     * @notice deposit collateral
+     * @dev user can call this function after approving his/her collateral amount
+     * @param _token collateral token address
+     * @param _amount collateral amount to deposit
+     * @param _onBehalfOf deposit collateral for
+     */
+    function deposit(
+        address _token,
+        uint256 _amount,
+        address _onBehalfOf
+    ) external nonReentrant {
+        require(collateralSettings[_token].isValid, 'invalid token');
+
+        // get collateral from depositor
+        IERC20MetadataUpgradeable(_token).safeTransferFrom(msg.sender, address(this), _amount);
+
+        // update a user's collateral position
+        userPositions[_onBehalfOf][_token].amount += _amount;
+
+        emit Deposit(_onBehalfOf, _token, _amount);
     }
 
     /// INTERNAL FUNCTIONS
