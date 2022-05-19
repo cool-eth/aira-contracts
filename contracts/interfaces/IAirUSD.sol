@@ -3,7 +3,7 @@ pragma solidity 0.8.9;
 
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 
-interface IAIRA is IERC20 {
+interface IAirUSD is IERC20 {
     function mint(address _to, uint256 _value) external;
 
     function burn(uint256 _value) external;

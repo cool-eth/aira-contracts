@@ -7,14 +7,14 @@ import '@openzeppelin/contracts/access/AccessControlEnumerable.sol';
 import '@openzeppelin/contracts/utils/Context.sol';
 
 /**
- * @title AIRA
+ * @title AirUSD
  * @notice Stable Coin contract
  * @dev Only LendingMarket will have `MINTER_ROLE` to mint tokens
  */
-contract AIRA is Context, AccessControlEnumerable, ERC20Burnable {
+contract AirUSD is Context, AccessControlEnumerable, ERC20Burnable {
     bytes32 public constant MINTER_ROLE = keccak256('MINTER_ROLE');
 
-    constructor() ERC20('AIRA', 'AIRA') {
+    constructor() ERC20('AirUSD', 'AirUSD') {
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
     }
 
