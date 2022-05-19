@@ -6,12 +6,12 @@ import '@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import '@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol';
 import '@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol';
 
-import './interfaces/IAIRA.sol';
-import './interfaces/IPriceOracleAggregator.sol';
+import './interfaces/IAirUSD.sol';
+import './interfaces/IPriceOracle.sol';
 
 /**
  * @title LendingMarket
- * @notice Lending pools where users can deposit/withdraw collateral and borrow AIRA.
+ * @notice Lending pools where users can deposit/withdraw collateral and borrow AirUSD.
  * @dev If the user's health factor is below 1, anyone can liquidate his/her position.
  * Protocol will charge debt interest from borrowers and protocol revenue from liquidation.
  */
@@ -27,7 +27,7 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     /// @notice A struct for lending market settings
     struct MarketSettings {
         Rate interestApr; // debt interest rate in APR
-        Rate orgFeeRate; // fees that will be charged upon minting AIRA (0.3% in AIRA)
+        Rate orgFeeRate; // fees that will be charged upon minting AirUSD (0.3% in AirUSD)
         Rate liquidatorFeeRate; // liquidation fee for liquidators. (5% in collateral)
         Rate orgRevenueFeeRate; // liquidation fee for protocol revenue. (3% in collateral)
     }
@@ -35,7 +35,7 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     /// @notice A struct for collateral settings
     struct CollateralSetting {
         bool isValid; // if collateral is valid or not
-        IPriceOracleAggregator oracle; // collateral price oracle (returns price in usd: 8 decimals)
+        IPriceOracle oracle; // collateral price oracle (returns price in usd: 8 decimals)
         Rate creditLimitRate; // collateral borrow limit (e.g. USDs = 80%, BTCs = 70%, AVAXs=70%)
         Rate liqLimitRate; // collateral liquidation threshold rate (greater than credit limit rate)
         uint8 decimals; // collateral token decimals
@@ -50,9 +50,13 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
 
     /// @notice An event thats emitted when user deposits collateral
     event Deposit(address indexed user, address indexed token, uint256 amount);
+    /// @notice An event thats emitted when user borrows AirUSD
+    event Borrowed(address indexed user, uint256 airUSDAmount);
+    /// @notice An event thats emitted when user withdraws collateral
+    event Withdraw(address indexed user, address indexed token, uint256 amount);
 
-    /// @notice AIRA token address
-    IAIRA public aira;
+    /// @notice AirUSD token address
+    IAirUSD public airUSD;
     /// @notice lending market settings
     MarketSettings public settings;
     /// @notice collateral tokens in array
@@ -62,12 +66,21 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     /// @notice users collateral position
     mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => position
 
+    /// @notice total borrowed amount accrued so far
+    uint256 public totalDebtAmount;
+    /// @notice last time of debt accrued
+    uint256 public totalDebtAccruedAt;
+    /// @notice total borrowed portion
+    uint256 public totalDebtPortion;
+    /// @notice total protocol fees accrued so far
+    uint256 public totalFeeCollected;
+
     /**
      * @notice Initializer.
-     * @param _aira AIRA token address
+     * @param _airUSD AirUSD token address
      * @param _settings lending market settings
      */
-    function initialize(IAIRA _aira, MarketSettings memory _settings) external initializer {
+    function initialize(IAirUSD _airUSD, MarketSettings memory _settings) external initializer {
         __Ownable_init();
         __ReentrancyGuard_init();
 
@@ -77,8 +90,24 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         _validateRate(_settings.liquidatorFeeRate); // 5%
         _validateRate(_settings.orgRevenueFeeRate); // 3%
 
-        aira = _aira;
+        airUSD = _airUSD;
         settings = _settings;
+    }
+
+    /**
+     * @notice accrue debt interest
+     * @dev Updates the contract's state by calculating the additional interest accrued since the last time
+     */
+    function accrue() public {
+        // calculate additional interest from last time
+        uint256 additionalInterest = _calculateInterestFromLastTime();
+
+        // set last time accrued
+        totalDebtAccruedAt = block.timestamp;
+
+        // plus additional interest
+        totalDebtAmount += additionalInterest;
+        totalFeeCollected += additionalInterest;
     }
 
     /**
@@ -106,7 +135,7 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         // add a new collateral
         collateralSettings[_token] = CollateralSetting({
             isValid: true,
-            oracle: IPriceOracleAggregator(_oracle),
+            oracle: IPriceOracle(_oracle),
             creditLimitRate: _creditLimitRate,
             liqLimitRate: _liqLimitRate,
             decimals: IERC20MetadataUpgradeable(_token).decimals()
@@ -168,6 +197,85 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         emit Deposit(_onBehalfOf, _token, _amount);
     }
 
+    /**
+     * @notice borrow AirUSD
+     * @dev user can call this function after depositing his/her collateral
+     * @param _token collateral token address
+     * @param _airUSDAmount AirUSD amount to borrow
+     */
+    function borrow(address _token, uint256 _airUSDAmount) external nonReentrant {
+        // check if collateral is valid
+        require(collateralSettings[_token].isValid, 'invalid token');
+
+        accrue();
+
+        // calculate borrow limit in USD
+        uint256 creditLimit = _creditLimitUSD(msg.sender, _token);
+        // calculate debt amount in USD
+        uint256 debtAmount = _debtUSD(msg.sender, _token);
+
+        // check if additional borrow is available
+        require(debtAmount + _airUSDAmount <= creditLimit, 'insufficient collateral');
+
+        // calculate AirUSD mint fee
+        uint256 orgFee = (_airUSDAmount * settings.orgFeeRate.numerator) / settings.orgFeeRate.denominator;
+        totalFeeCollected += orgFee;
+
+        // mint AirUSD to user
+        airUSD.mint(msg.sender, _airUSDAmount - orgFee);
+
+        // update user's collateral position
+        Position storage position = userPositions[msg.sender][_token];
+        if (totalDebtPortion == 0) {
+            totalDebtPortion = _airUSDAmount;
+            position.debtPortion = _airUSDAmount;
+        } else {
+            uint256 plusPortion = (totalDebtPortion * _airUSDAmount) / totalDebtAmount;
+            totalDebtPortion += plusPortion;
+            position.debtPortion += plusPortion;
+        }
+        position.debtPrincipal += _airUSDAmount;
+        totalDebtAmount += _airUSDAmount;
+
+        emit Borrowed(msg.sender, _airUSDAmount);
+    }
+
+    /**
+     * @notice withdraw collateral
+     * @dev user can call this function after depositing his/her collateral
+     * @param _token collateral token address
+     * @param _amount collateral amount to withdraw
+     */
+    function withdraw(address _token, uint256 _amount) external nonReentrant {
+        // check if collateral is valid
+        require(collateralSettings[_token].isValid, 'invalid token');
+
+        accrue();
+
+        Position storage position = userPositions[msg.sender][_token];
+
+        // check if withdraw amount is more than the collateral amount
+        require(position.amount >= _amount, 'insufficient collateral');
+
+        // calculate borrow limit after withdraw in USD
+        uint256 creditLimitAfterWithdraw = (_tokenUSD(_token, position.amount - _amount) *
+            collateralSettings[_token].creditLimitRate.numerator) /
+            collateralSettings[_token].creditLimitRate.denominator;
+        // calculate debt amount in USD
+        uint256 debtAmount = _debtUSD(msg.sender, _token);
+
+        // check if withdraw is available
+        require(debtAmount <= creditLimitAfterWithdraw, 'insufficient collateral');
+
+        // update user's collateral position
+        position.amount -= _amount;
+
+        // transfer collateral to user
+        IERC20MetadataUpgradeable(_token).safeTransfer(msg.sender, _amount);
+
+        emit Withdraw(msg.sender, _token, _amount);
+    }
+
     /// INTERNAL FUNCTIONS
 
     /**
@@ -175,5 +283,63 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      */
     function _validateRate(Rate memory rate) internal pure {
         require(rate.denominator > 0 && rate.denominator >= rate.numerator, 'invalid rate');
+    }
+
+    /**
+     * @notice calculate additional interest accrued from last time
+     * @return The interest accrued from last time
+     */
+    function _calculateInterestFromLastTime() internal view returns (uint256) {
+        // calculate elapsed time from last accrued at
+        uint256 elapsedTime = block.timestamp - totalDebtAccruedAt;
+
+        // calculate interest based on elapsed time and interest APR
+        return
+            (elapsedTime * totalDebtAmount * settings.interestApr.numerator) /
+            settings.interestApr.denominator /
+            365 days;
+    }
+
+    /**
+     * @notice returns the USD amount
+     * @param token collateral token address
+     * @param amount token amount
+     * @return The USD amount in 18 decimals
+     */
+    function _tokenUSD(address token, uint256 amount) internal view returns (uint256) {
+        // get price from collateral token oracle contract
+        uint256 price = collateralSettings[token].oracle.getPrice(token);
+
+        // convert to 18 decimals
+        return (amount * price * 10**10) / (10**collateralSettings[token].decimals);
+    }
+
+    /**
+     * @notice returns the borrow limit amount in USD
+     * @param _user user address
+     * @param _token collateral token address
+     * @return The USD amount in 18 decimals
+     */
+    function _creditLimitUSD(address _user, address _token) internal view returns (uint256) {
+        uint256 amount = userPositions[_user][_token].amount;
+        uint256 totalUSD = _tokenUSD(_token, amount);
+        return
+            (totalUSD * collateralSettings[_token].creditLimitRate.numerator) /
+            collateralSettings[_token].creditLimitRate.denominator;
+    }
+
+    /**
+     * @notice returns the debt amount in USD
+     * @param _user user address
+     * @param _token collateral token address
+     * @return The USD amount in 18 decimals
+     */
+    function _debtUSD(address _user, address _token) internal view returns (uint256) {
+        uint256 debtCalculated = totalDebtPortion == 0
+            ? 0
+            : (totalDebtAmount * userPositions[_user][_token].debtPortion) / totalDebtPortion;
+        uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
+
+        return debtPrincipal > debtCalculated ? debtPrincipal : debtCalculated; // consider of round at debt calculation
     }
 }
