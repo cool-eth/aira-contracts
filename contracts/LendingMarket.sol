@@ -8,6 +8,7 @@ import '@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 
 import './interfaces/IAirUSD.sol';
 import './interfaces/IPriceOracle.sol';
+import './interfaces/ILendingMarket.sol';
 
 /**
  * @title LendingMarket
@@ -15,7 +16,7 @@ import './interfaces/IPriceOracle.sol';
  * @dev If the user's health factor is below 1, anyone can liquidate his/her position.
  * Protocol will charge debt interest from borrowers and protocol revenue from liquidation.
  */
-contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
+contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable, ILendingMarket {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
     /// @notice A struct to represent the rate in numerator/denominator
@@ -69,6 +70,10 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     mapping(address => CollateralSetting) public collateralSettings; // token => collateral setting
     /// @notice users collateral position
     mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => position
+    /// @notice users array per collateral token
+    mapping(address => address[]) internal marketUsers; // collateral token => users array
+    /// @notice market user flag
+    mapping(address => mapping(address => bool)) internal isMarketUser; // user => collateral token => flag
 
     /// @notice total borrowed amount accrued so far
     uint256 public totalDebtAmount;
@@ -209,6 +214,12 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
 
         // update a user's collateral position
         userPositions[_onBehalfOf][_token].amount += _amount;
+
+        // check if new market user enters
+        if (!isMarketUser[_onBehalfOf][_token]) {
+            isMarketUser[_onBehalfOf][_token] = true;
+            marketUsers[_token].push(_onBehalfOf);
+        }
 
         emit Deposit(_onBehalfOf, _token, _amount);
     }
@@ -390,23 +401,11 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         emit Liquidate(_user, _token, _airUSDAmount, msg.sender);
     }
 
-    /// @notice A struct to preview a user's collateral position
-    struct PositionView {
-        address owner;
-        address token;
-        uint256 amount;
-        uint256 amountUSD;
-        uint256 creditLimitUSD;
-        uint256 debtPrincipal;
-        uint256 debtInterest;
-        bool liquidatable;
-    }
-
     /**
      * @notice returns a user's collateral position
      * @return position this includes a user's collateral, debt, liquidation data.
      */
-    function positionView(address _user, address _token) external view returns (PositionView memory) {
+    function positionView(address _user, address _token) external view override returns (PositionView memory) {
         Position memory position = userPositions[_user][_token];
 
         // this is a copy from _debtUSD but should include additional-interest calculation
@@ -430,6 +429,25 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
             });
     }
 
+    function liquidatable(address _user, address _token) external view override returns(bool) {
+        // this is a copy from _debtUSD but should include additional-interest calculation
+        uint256 debtCalculated = totalDebtPortion == 0
+            ? 0
+            : ((totalDebtAmount + _calculateInterestFromLastTime()) * userPositions[_user][_token].debtPortion) /
+                totalDebtPortion;
+        uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
+        uint256 debtAmount = debtPrincipal > debtCalculated ? debtPrincipal : debtCalculated;
+
+        return debtAmount >= _liquidateLimitUSD(_user, _token);
+    }
+
+    function getUserCount(address _token) external override view returns (uint256) {
+        return marketUsers[_token].length;
+    }
+
+    function getUserAt(address _token, uint256 _index) external view returns (address) {
+        return marketUsers[_token][_index];
+    }
 
     /// INTERNAL FUNCTIONS
 
