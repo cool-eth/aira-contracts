@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity 0.8.9;
 
-import '@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol';
-import '@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol';
-import '@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol';
-import '@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol';
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
-import './interfaces/IAirUSD.sol';
-import './interfaces/IPriceOracle.sol';
+import "./interfaces/IAirUSD.sol";
+import "./interfaces/ISwapper.sol";
+import "./interfaces/IPriceOracle.sol";
 
 /**
  * @title LendingMarket
@@ -17,6 +19,7 @@ import './interfaces/IPriceOracle.sol';
  */
 contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
+    using SafeERC20 for IAirUSD;
 
     /// @notice A struct to represent the rate in numerator/denominator
     struct Rate {
@@ -28,8 +31,7 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     struct MarketSettings {
         Rate interestApr; // debt interest rate in APR
         Rate orgFeeRate; // fees that will be charged upon minting AirUSD (0.3% in AirUSD)
-        Rate liquidatorFeeRate; // liquidation fee for liquidators. (5% in collateral)
-        Rate orgRevenueFeeRate; // liquidation fee for protocol revenue. (3% in collateral)
+        Rate liquidationPenalty; // liquidation penalty fees (5%)
     }
 
     /// @notice A struct for collateral settings
@@ -57,7 +59,12 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     /// @notice An event thats emitted when user repays AirUSD
     event Repay(address indexed user, uint256 airUSDAmount);
     /// @notice An event thats emitted when liquidator liquidates a user's position
-    event Liquidate(address indexed user, address indexed token, uint256 amount, address indexed liquidator);
+    event Liquidate(
+        address indexed user,
+        address indexed token,
+        uint256 amount,
+        address indexed liquidator
+    );
 
     /// @notice AirUSD token address
     IAirUSD public airUSD;
@@ -79,22 +86,39 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     /// @notice total protocol fees accrued so far
     uint256 public totalFeeCollected;
 
+    /// @notice treasury address (10% of liquidation penalty + 20% of interest + borrow fee)
+    address public treasury;
+    /// @notice staking address (40% of liquidation penalty + 80% of interest + borrow fee)
+    address public staking;
+    /// @notice swapper (weth => airUSD)
+    ISwapper public swapper;
+    /// @notice chainlink keepers
+    mapping(address => bool) public keepers; // keeper => yes/no
+
     /**
      * @notice Initializer.
      * @param _airUSD AirUSD token address
      * @param _settings lending market settings
      */
-    function initialize(IAirUSD _airUSD, MarketSettings memory _settings) external initializer {
+    function initialize(
+        IAirUSD _airUSD,
+        address _treasury,
+        address _staking,
+        ISwapper _swapper,
+        MarketSettings memory _settings
+    ) external initializer {
         __Ownable_init();
         __ReentrancyGuard_init();
 
         // validates lending market settings
         _validateRate(_settings.interestApr); // should be updated to use cov ratio
         _validateRate(_settings.orgFeeRate); // 0.3%
-        _validateRate(_settings.liquidatorFeeRate); // 5%
-        _validateRate(_settings.orgRevenueFeeRate); // 3%
+        _validateRate(_settings.liquidationPenalty); // 5%
 
         airUSD = _airUSD;
+        treasury = _treasury;
+        staking = _staking;
+        swapper = _swapper;
         settings = _settings;
     }
 
@@ -115,6 +139,45 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     }
 
     /**
+     * @notice set new treasury address
+     * @param _treasury new treasury address
+     */
+    function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "invalid treasury address");
+
+        treasury = _treasury;
+    }
+
+    /**
+     * @notice set new staking address
+     * @param _staking new staking address
+     */
+    function setStaking(address _staking) external onlyOwner {
+        require(_staking != address(0), "invalid staking address");
+
+        staking = _staking;
+    }
+
+    /**
+     * @notice set new swapper address
+     * @param _swapper new swapper address
+     */
+    function setSwapper(address _swapper) external onlyOwner {
+        require(_swapper != address(0), "invalid swapper address");
+
+        swapper = ISwapper(_swapper);
+    }
+
+    /**
+     * @notice add/remove chainlink keeper
+     * @param _keeper keeper adddress
+     * @param _approved add or remove
+     */
+    function setKeeper(address _keeper, bool _approved) external onlyOwner {
+        keepers[_keeper] = _approved;
+    }
+
+    /**
      * @notice add a new collateral token
      * @dev only owner can call this function
      * @param _token collateral token address
@@ -129,12 +192,12 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         Rate memory _liqLimitRate
     ) external onlyOwner {
         // validates collateral settings
-        require(_oracle != address(0), 'invalid oracle address');
+        require(_oracle != address(0), "invalid oracle address");
         _validateRate(_creditLimitRate);
         _validateRate(_liqLimitRate);
 
         // check if collateral token already exists
-        require(!collateralSettings[_token].isValid, 'collateral token exists');
+        require(!collateralSettings[_token].isValid, "collateral token exists");
 
         // add a new collateral
         collateralSettings[_token] = CollateralSetting({
@@ -154,7 +217,7 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      */
     function removeCollateralToken(address _token) external onlyOwner {
         // check if collateral token already exists
-        require(collateralSettings[_token].isValid, 'invalid collateral token');
+        require(collateralSettings[_token].isValid, "invalid collateral token");
 
         // add a new collateral
         uint256 index = 0;
@@ -186,7 +249,7 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         accrue();
 
         // collect protocol fees in AirUSD
-        airUSD.mint(msg.sender, totalFeeCollected);
+        _transferFee(totalFeeCollected, true);
         totalFeeCollected = 0;
     }
 
@@ -202,10 +265,14 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         uint256 _amount,
         address _onBehalfOf
     ) external nonReentrant {
-        require(collateralSettings[_token].isValid, 'invalid token');
+        require(collateralSettings[_token].isValid, "invalid token");
 
         // get collateral from depositor
-        IERC20MetadataUpgradeable(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        IERC20MetadataUpgradeable(_token).safeTransferFrom(
+            msg.sender,
+            address(this),
+            _amount
+        );
 
         // update a user's collateral position
         userPositions[_onBehalfOf][_token].amount += _amount;
@@ -219,9 +286,12 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      * @param _token collateral token address
      * @param _airUSDAmount AirUSD amount to borrow
      */
-    function borrow(address _token, uint256 _airUSDAmount) external nonReentrant {
+    function borrow(address _token, uint256 _airUSDAmount)
+        external
+        nonReentrant
+    {
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, 'invalid token');
+        require(collateralSettings[_token].isValid, "invalid token");
 
         accrue();
 
@@ -231,10 +301,14 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         uint256 debtAmount = _debtUSD(msg.sender, _token);
 
         // check if additional borrow is available
-        require(debtAmount + _airUSDAmount <= creditLimit, 'insufficient collateral');
+        require(
+            debtAmount + _airUSDAmount <= creditLimit,
+            "insufficient collateral"
+        );
 
         // calculate AirUSD mint fee
-        uint256 orgFee = (_airUSDAmount * settings.orgFeeRate.numerator) / settings.orgFeeRate.denominator;
+        uint256 orgFee = (_airUSDAmount * settings.orgFeeRate.numerator) /
+            settings.orgFeeRate.denominator;
         totalFeeCollected += orgFee;
 
         // mint AirUSD to user
@@ -246,7 +320,8 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
             totalDebtPortion = _airUSDAmount;
             position.debtPortion = _airUSDAmount;
         } else {
-            uint256 plusPortion = (totalDebtPortion * _airUSDAmount) / totalDebtAmount;
+            uint256 plusPortion = (totalDebtPortion * _airUSDAmount) /
+                totalDebtAmount;
             totalDebtPortion += plusPortion;
             position.debtPortion += plusPortion;
         }
@@ -264,24 +339,29 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      */
     function withdraw(address _token, uint256 _amount) external nonReentrant {
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, 'invalid token');
+        require(collateralSettings[_token].isValid, "invalid token");
 
         accrue();
 
         Position storage position = userPositions[msg.sender][_token];
 
         // check if withdraw amount is more than the collateral amount
-        require(position.amount >= _amount, 'insufficient collateral');
+        require(position.amount >= _amount, "insufficient collateral");
 
         // calculate borrow limit after withdraw in USD
-        uint256 creditLimitAfterWithdraw = (_tokenUSD(_token, position.amount - _amount) *
-            collateralSettings[_token].creditLimitRate.numerator) /
+        uint256 creditLimitAfterWithdraw = (_tokenUSD(
+            _token,
+            position.amount - _amount
+        ) * collateralSettings[_token].creditLimitRate.numerator) /
             collateralSettings[_token].creditLimitRate.denominator;
         // calculate debt amount in USD
         uint256 debtAmount = _debtUSD(msg.sender, _token);
 
         // check if withdraw is available
-        require(debtAmount <= creditLimitAfterWithdraw, 'insufficient collateral');
+        require(
+            debtAmount <= creditLimitAfterWithdraw,
+            "insufficient collateral"
+        );
 
         // update user's collateral position
         position.amount -= _amount;
@@ -292,20 +372,22 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         emit Withdraw(msg.sender, _token, _amount);
     }
 
-
     /**
      * @notice repay position with AirUSD
      * @dev user can call this function after approving his/her AirUSD amount to repay
      * @param _token collateral token address
      * @param _airUSDAmount AirUSD amount to repay
      */
-    function repay(address _token, uint256 _airUSDAmount) external nonReentrant {
+    function repay(address _token, uint256 _airUSDAmount)
+        external
+        nonReentrant
+    {
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, 'invalid token');
+        require(collateralSettings[_token].isValid, "invalid token");
 
         accrue();
 
-        require(_airUSDAmount > 0, 'invalid amount');
+        require(_airUSDAmount > 0, "invalid amount");
 
         Position storage position = userPositions[msg.sender][_token];
 
@@ -321,7 +403,9 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         airUSD.burnFrom(msg.sender, _airUSDAmount);
 
         // update user's collateral position
-        uint256 paidPrincipal = _airUSDAmount > debtInterest ? _airUSDAmount - debtInterest : 0;
+        uint256 paidPrincipal = _airUSDAmount > debtInterest
+            ? _airUSDAmount - debtInterest
+            : 0;
         uint256 minusPortion = paidPrincipal == debtPrincipal
             ? position.debtPortion
             : (totalDebtPortion * _airUSDAmount) / totalDebtAmount;
@@ -334,60 +418,79 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
         emit Repay(msg.sender, _airUSDAmount);
     }
 
-    /**
-     * @notice liquidate a user's position
-     * @dev liquidator can call this function after approving his/her AirUSD amount to repay for (up to 50% avaialble)
-     * @param _user a user address
-     * @param _token collateral token address
-     * @param _airUSDAmount AirUSD amount to repay
-     */
-    function liquidate(
-        address _user,
-        address _token,
-        uint256 _airUSDAmount
-    ) external nonReentrant {
+    function liquidate(address _user, address _token) external nonReentrant {
+        // check if msg.sender is chainlink keeper
+        require(keepers[msg.sender], "not keeper");
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, 'invalid token');
+        require(collateralSettings[_token].isValid, "invalid token");
 
         accrue();
 
         Position storage position = userPositions[_user][_token];
         // calculate debt amount in USD
         uint256 debtAmount = _debtUSD(_user, _token);
-        uint256 debtPrincipal = position.debtPrincipal;
-        uint256 debtInterest = debtAmount - debtPrincipal;
 
         // check if liquidation is available
-        require(debtAmount > _liquidateLimitUSD(_user, _token), 'not liquidatable');
-        // limit repay amount upto 50%
-        require(_airUSDAmount <= debtAmount / 2, 'up to 50% available');
+        require(
+            debtAmount > _liquidateLimitUSD(_user, _token),
+            "not liquidatable"
+        );
 
-        // burn repaid AirUSD
-        airUSD.burnFrom(msg.sender, _airUSDAmount);
+        // burn airUSD from keeper
+        airUSD.burnFrom(msg.sender, debtAmount);
 
-        // update user's collateral position
-        uint256 paidPrincipal = _airUSDAmount > debtInterest ? _airUSDAmount - debtInterest : 0;
-        uint256 minusPortion = paidPrincipal == debtPrincipal
-            ? position.debtPortion
-            : (totalDebtPortion * _airUSDAmount) / totalDebtAmount;
+        // get price from collateral token oracle contract
+        uint256 price = collateralSettings[_token].oracle.getPrice(_token);
+        // returnUSD = debtAmount + liquidation penalty (105%)
+        uint256 returnUSD = debtAmount +
+            (debtAmount * settings.liquidationPenalty.numerator) /
+            settings.liquidationPenalty.denominator;
+        // collateral amount in returnUSD
+        uint256 collateralAmountIn = (returnUSD *
+            (10**collateralSettings[_token].decimals)) /
+            price /
+            10**10;
 
-        totalDebtAmount -= _airUSDAmount;
-        totalDebtPortion -= minusPortion;
-        position.debtPrincipal -= paidPrincipal;
-        position.debtPortion -= minusPortion;
+        require(collateralAmountIn <= position.amount, "not enough collateral");
 
-        // returns liquidation fee to liquidator
-        uint256 liquidatorFeeUSD = _airUSDAmount +
-            (_airUSDAmount * settings.liquidatorFeeRate.numerator) /
-            settings.liquidatorFeeRate.denominator;
-        position.amount -= _returnFeeFromCollateral(msg.sender, _token, liquidatorFeeUSD);
+        // swap collateral token in airUSD
+        IERC20(_token).approve(address(swapper), collateralAmountIn);
+        uint256 airUSDAmountOut = swapper.swap(
+            _token,
+            address(airUSD),
+            collateralAmountIn,
+            address(this)
+        );
 
-        // returns organization revenue to the owner
-        uint256 orgRevenueUSD = (_airUSDAmount * settings.orgRevenueFeeRate.numerator) /
-            settings.orgRevenueFeeRate.denominator;
-        position.amount -= _returnFeeFromCollateral(owner(), _token, orgRevenueUSD);
+        require(airUSDAmountOut > debtAmount, "zero penalty");
 
-        emit Liquidate(_user, _token, _airUSDAmount, msg.sender);
+        // liquidation penalty
+        uint256 liquidationPenalty = airUSDAmountOut - debtAmount;
+
+        // debtAmount + 50% of penalty => keeper
+        airUSD.transfer(msg.sender, debtAmount + liquidationPenalty / 2);
+
+        // 50% of penalty => fees
+        _transferFee(liquidationPenalty / 2, false);
+
+        // return rest collateral token to user
+        if (position.amount > collateralAmountIn) {
+            IERC20MetadataUpgradeable(_token).safeTransfer(
+                _user,
+                position.amount - collateralAmountIn
+            );
+        }
+
+        // update total info
+        totalDebtAmount -= debtAmount;
+        totalDebtPortion -= position.debtPortion;
+
+        // remove user position
+        position.amount = 0;
+        position.debtPortion = 0;
+        position.debtPrincipal = 0;
+
+        emit Liquidate(_user, _token, debtAmount, msg.sender);
     }
 
     /// @notice A struct to preview a user's collateral position
@@ -406,16 +509,22 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      * @notice returns a user's collateral position
      * @return position this includes a user's collateral, debt, liquidation data.
      */
-    function positionView(address _user, address _token) external view returns (PositionView memory) {
+    function positionView(address _user, address _token)
+        external
+        view
+        returns (PositionView memory)
+    {
         Position memory position = userPositions[_user][_token];
 
         // this is a copy from _debtUSD but should include additional-interest calculation
         uint256 debtCalculated = totalDebtPortion == 0
             ? 0
-            : ((totalDebtAmount + _calculateInterestFromLastTime()) * userPositions[_user][_token].debtPortion) /
-                totalDebtPortion;
+            : ((totalDebtAmount + _calculateInterestFromLastTime()) *
+                userPositions[_user][_token].debtPortion) / totalDebtPortion;
         uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
-        uint256 debtAmount = debtPrincipal > debtCalculated ? debtPrincipal : debtCalculated;
+        uint256 debtAmount = debtPrincipal > debtCalculated
+            ? debtPrincipal
+            : debtCalculated;
 
         return
             PositionView({
@@ -430,14 +539,16 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
             });
     }
 
-
     /// INTERNAL FUNCTIONS
 
     /**
      * @notice validate rate denominator and numerator
      */
     function _validateRate(Rate memory rate) internal pure {
-        require(rate.denominator > 0 && rate.denominator >= rate.numerator, 'invalid rate');
+        require(
+            rate.denominator > 0 && rate.denominator >= rate.numerator,
+            "invalid rate"
+        );
     }
 
     /**
@@ -461,12 +572,18 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      * @param amount token amount
      * @return The USD amount in 18 decimals
      */
-    function _tokenUSD(address token, uint256 amount) internal view returns (uint256) {
+    function _tokenUSD(address token, uint256 amount)
+        internal
+        view
+        returns (uint256)
+    {
         // get price from collateral token oracle contract
         uint256 price = collateralSettings[token].oracle.getPrice(token);
 
         // convert to 18 decimals
-        return (amount * price * 10**10) / (10**collateralSettings[token].decimals);
+        return
+            (amount * price * 10**10) /
+            (10**collateralSettings[token].decimals);
     }
 
     /**
@@ -475,7 +592,11 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      * @param _token collateral token address
      * @return The USD amount in 18 decimals
      */
-    function _creditLimitUSD(address _user, address _token) internal view returns (uint256) {
+    function _creditLimitUSD(address _user, address _token)
+        internal
+        view
+        returns (uint256)
+    {
         uint256 amount = userPositions[_user][_token].amount;
         uint256 totalUSD = _tokenUSD(_token, amount);
         return
@@ -489,7 +610,11 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      * @param _token collateral token address
      * @return The USD amount in 18 decimals
      */
-    function _liquidateLimitUSD(address _user, address _token) internal view returns (uint256) {
+    function _liquidateLimitUSD(address _user, address _token)
+        internal
+        view
+        returns (uint256)
+    {
         uint256 amount = userPositions[_user][_token].amount;
         uint256 totalUSD = _tokenUSD(_token, amount);
         return
@@ -503,33 +628,35 @@ contract LendingMarket is OwnableUpgradeable, ReentrancyGuardUpgradeable {
      * @param _token collateral token address
      * @return The USD amount in 18 decimals
      */
-    function _debtUSD(address _user, address _token) internal view returns (uint256) {
+    function _debtUSD(address _user, address _token)
+        internal
+        view
+        returns (uint256)
+    {
         uint256 debtCalculated = totalDebtPortion == 0
             ? 0
-            : (totalDebtAmount * userPositions[_user][_token].debtPortion) / totalDebtPortion;
+            : (totalDebtAmount * userPositions[_user][_token].debtPortion) /
+                totalDebtPortion;
         uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
 
         return debtPrincipal > debtCalculated ? debtPrincipal : debtCalculated; // consider of round at debt calculation
     }
 
     /**
-     * @notice transfers fees
-     * @param _recipient recipient address
-     * @param _token collateral token address
-     * @param _returnUSD collateral amount in USD
-     * @return collateralReturned collateral amount transfered
+     * @notice transfer airUSD fee to staking (80%) and treasury (20%)
+     * @param _fee fee amount
+     * @param _mint airUSD mint or transfer
      */
-    function _returnFeeFromCollateral(
-        address _recipient,
-        address _token,
-        uint256 _returnUSD
-    ) internal returns (uint256 collateralReturned) {
-        // get price from collateral token oracle contract
-        uint256 price = collateralSettings[_token].oracle.getPrice(_token);
-        // calculate collateral mount to be transfered (from USD amount)
-        collateralReturned = (_returnUSD * (10**collateralSettings[_token].decimals)) / price / 10**10;
+    function _transferFee(uint256 _fee, bool _mint) internal {
+        uint256 treasuryFee = _fee / 5;
+        uint256 stakingFee = _fee - treasuryFee;
 
-        // transfer collateral amount to recipient
-        IERC20MetadataUpgradeable(_token).safeTransfer(_recipient, collateralReturned);
+        if (_mint) {
+            airUSD.mint(treasury, treasuryFee);
+            airUSD.mint(staking, stakingFee);
+        } else {
+            airUSD.safeTransfer(treasury, treasuryFee);
+            airUSD.safeTransfer(staking, stakingFee);
+        }
     }
 }
