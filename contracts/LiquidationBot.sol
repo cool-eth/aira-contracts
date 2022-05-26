@@ -3,19 +3,32 @@ pragma solidity 0.8.9;
 pragma abicoder v2;
 
 import "@chainlink/contracts/src/v0.8/KeeperCompatible.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./interfaces/ILendingMarket.sol";
+import "./interfaces/IStablePool.sol";
 
 /**
  * @title LiquidationBot
  */
 contract LiquidationBot is KeeperCompatible {
+    using SafeERC20 for IERC20;
+
     uint256 public constant MAX_SEARCH_COUNT = 100;
     uint256 public constant MAX_LIQUIDATION_COUNT = 3;
     ILendingMarket public immutable lendingMarket;
+    IStablePool public immutable stablePool;
+    IERC20 public airUSD;
 
-    constructor(address _lendingMarket) {
+    constructor(
+        address _lendingMarket,
+        address _stablePool,
+        address _airUSD
+    ) {
         lendingMarket = ILendingMarket(_lendingMarket);
+        stablePool = IStablePool(_stablePool);
+        airUSD = IERC20(_airUSD);
     }
 
     function checkUpkeep(bytes calldata checkData)
@@ -55,6 +68,23 @@ contract LiquidationBot is KeeperCompatible {
             (address, address[])
         );
 
-        // liquidate user's position
+        for (uint256 i = 0; i < liquidatableUsers.length; i++) {
+            ILendingMarket.PositionView memory position = lendingMarket
+                .positionView(liquidatableUsers[i], token);
+            if (position.liquidatable) {
+                stablePool.prepare(
+                    position.debtPrincipal + position.debtInterest,
+                    abi.encode(token, liquidatableUsers[i])
+                );
+            }
+        }
+    }
+
+    function onPrepare(uint256 amount, bytes calldata data) external {
+        require(msg.sender == address(stablePool), "not stable pool");
+
+        (address token, address user) = abi.decode(data, (address, address));
+
+        airUSD.safeApprove(address(lendingMarket), amount);
     }
 }
