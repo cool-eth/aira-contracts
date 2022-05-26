@@ -85,6 +85,11 @@ contract LiquidationBot is KeeperCompatible {
 
         (address token, address user) = abi.decode(data, (address, address));
 
+        // approve and liquidate user's position
         airUSD.safeApprove(address(lendingMarket), amount);
+        lendingMarket.liquidate(user, token);
+
+        // transfer back to stable pool
+        airUSD.transfer(address(stablePool), airUSD.balanceOf(address(this)));
     }
 }

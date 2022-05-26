@@ -32,4 +32,6 @@ interface ILendingMarket {
         external
         view
         returns (bool);
+
+    function liquidate(address _user, address _token) external;
 }

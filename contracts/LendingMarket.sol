@@ -435,7 +435,11 @@ contract LendingMarket is
         emit Repay(msg.sender, _airUSDAmount);
     }
 
-    function liquidate(address _user, address _token) external nonReentrant {
+    function liquidate(address _user, address _token)
+        external
+        override
+        nonReentrant
+    {
         // check if msg.sender is chainlink keeper
         require(keepers[msg.sender], "not keeper");
         // check if collateral is valid
