@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "./interfaces/ILendingAddressRegistry.sol";
 import "./interfaces/IStablePool.sol";
 import "./interfaces/IStablePoolKeeper.sol";
 
@@ -29,23 +30,27 @@ contract StablePool is IStablePool, Ownable {
     );
     event Prepare(address keeper, uint256 amount, bytes data);
 
+    /// @notice address provider
+    ILendingAddressRegistry public addressProvider;
+    /// @notice AirUSD token address
     address public airUSD;
-    address public keeper;
 
+    /// @notice user deposited amount
     mapping(address => uint256) public balanceOf;
+    /// @notice total deposited amount
     uint256 public totalSupply;
 
-    constructor(address _airUSD, address _keeper) Ownable() {
+    constructor(address _provider, address _airUSD) Ownable() {
+        addressProvider = ILendingAddressRegistry(_provider);
         airUSD = _airUSD;
-        keeper = _keeper;
     }
 
-    function setKeeper(address _keeper) external onlyOwner {
-        keeper = _keeper;
+    function setAddressProvider(address _provider) external onlyOwner {
+        addressProvider = ILendingAddressRegistry(_provider);
     }
 
     function prepare(uint256 _amount, bytes calldata _data) external override {
-        require(msg.sender == keeper, "not keeper");
+        require(addressProvider.isKeeper(msg.sender), "not keeper");
 
         uint256 reservesBefore = totalAirUSD();
 

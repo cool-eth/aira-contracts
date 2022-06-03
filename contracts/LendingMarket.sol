@@ -7,6 +7,7 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
+import "./interfaces/ILendingAddressRegistry.sol";
 import "./interfaces/IAirUSD.sol";
 import "./interfaces/IPriceOracle.sol";
 import "./interfaces/ILendingMarket.sol";
@@ -73,6 +74,8 @@ contract LendingMarket is
         address indexed liquidator
     );
 
+    /// @notice address provider
+    ILendingAddressRegistry public addressProvider;
     /// @notice AirUSD token address
     IAirUSD public airUSD;
     /// @notice lending market settings
@@ -97,25 +100,15 @@ contract LendingMarket is
     /// @notice total protocol fees accrued so far
     uint256 public totalFeeCollected;
 
-    /// @notice treasury address (10% of liquidation penalty + 20% of interest + borrow fee)
-    address public treasury;
-    /// @notice staking address (40% of liquidation penalty + 80% of interest + borrow fee)
-    address public staking;
-    /// @notice swapper (weth => airUSD)
-    ISwapper public swapper;
-    /// @notice chainlink keepers
-    mapping(address => bool) public keepers; // keeper => yes/no
-
     /**
      * @notice Initializer.
+     * @param _provider address provider
      * @param _airUSD AirUSD token address
      * @param _settings lending market settings
      */
     function initialize(
+        address _provider,
         IAirUSD _airUSD,
-        address _treasury,
-        address _staking,
-        ISwapper _swapper,
         MarketSettings memory _settings
     ) external initializer {
         __Ownable_init();
@@ -126,10 +119,8 @@ contract LendingMarket is
         _validateRate(_settings.orgFeeRate); // 0.3%
         _validateRate(_settings.liquidationPenalty); // 5%
 
+        addressProvider = ILendingAddressRegistry(_provider);
         airUSD = _airUSD;
-        treasury = _treasury;
-        staking = _staking;
-        swapper = _swapper;
         settings = _settings;
     }
 
@@ -150,42 +141,11 @@ contract LendingMarket is
     }
 
     /**
-     * @notice set new treasury address
-     * @param _treasury new treasury address
+     * @notice set new address provider
+     * @param _provider new address provider
      */
-    function setTreasury(address _treasury) external onlyOwner {
-        require(_treasury != address(0), "invalid treasury address");
-
-        treasury = _treasury;
-    }
-
-    /**
-     * @notice set new staking address
-     * @param _staking new staking address
-     */
-    function setStaking(address _staking) external onlyOwner {
-        require(_staking != address(0), "invalid staking address");
-
-        staking = _staking;
-    }
-
-    /**
-     * @notice set new swapper address
-     * @param _swapper new swapper address
-     */
-    function setSwapper(address _swapper) external onlyOwner {
-        require(_swapper != address(0), "invalid swapper address");
-
-        swapper = ISwapper(_swapper);
-    }
-
-    /**
-     * @notice add/remove chainlink keeper
-     * @param _keeper keeper adddress
-     * @param _approved add or remove
-     */
-    function setKeeper(address _keeper, bool _approved) external onlyOwner {
-        keepers[_keeper] = _approved;
+    function setAddressProvider(address _provider) external onlyOwner {
+        addressProvider = ILendingAddressRegistry(_provider);
     }
 
     /**
@@ -441,7 +401,7 @@ contract LendingMarket is
         nonReentrant
     {
         // check if msg.sender is chainlink keeper
-        require(keepers[msg.sender], "not keeper");
+        require(addressProvider.isKeeper(msg.sender), "not keeper");
         // check if collateral is valid
         require(collateralSettings[_token].isValid, "invalid token");
 
@@ -475,8 +435,9 @@ contract LendingMarket is
         require(collateralAmountIn <= position.amount, "not enough collateral");
 
         // swap collateral token in airUSD
-        IERC20(_token).approve(address(swapper), collateralAmountIn);
-        uint256 airUSDAmountOut = swapper.swap(
+        address swapper = addressProvider.getSwapper();
+        IERC20(_token).approve(swapper, collateralAmountIn);
+        uint256 airUSDAmountOut = ISwapper(swapper).swap(
             _token,
             address(airUSD),
             collateralAmountIn,
@@ -694,7 +655,10 @@ contract LendingMarket is
      * @param _mint airUSD mint or transfer
      */
     function _transferFee(uint256 _fee, bool _mint) internal {
+        address treasury = addressProvider.getTreasury();
         uint256 treasuryFee = _fee / 5;
+
+        address staking = addressProvider.getStaking();
         uint256 stakingFee = _fee - treasuryFee;
 
         if (_mint) {
