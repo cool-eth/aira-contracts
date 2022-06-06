@@ -4,6 +4,7 @@ pragma solidity 0.8.9;
 interface ILendingAddressRegistry {
     function initialize(
         address lendingMarket,
+        address priceOracleAggregator,
         address treasury,
         address staking,
         address stablePool,
@@ -13,6 +14,10 @@ interface ILendingAddressRegistry {
     function getLendingMarket() external view returns (address);
 
     function setLendingMarket(address lendingMarket) external;
+
+    function getPriceOracleAggregator() external view returns (address);
+
+    function setPriceOracleAggregator(address priceOracleAggregator) external;
 
     function getTreasury() external view returns (address);
 

@@ -11,6 +11,8 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
 
     /// @notice lending contract
     bytes32 public constant LENDING_MARKET = "LENDING_MARKET";
+    /// @notice token price oracle aggregator
+    bytes32 public constant PRICE_ORACLE_AGGREGATOR = "PRICE_ORACLE_AGGREGATOR";
     /// @notice treasury address (10% of liquidation penalty + 20% of interest + borrow fee)
     bytes32 public constant TREASURY = "TREASURY";
     /// @notice staking address (40% of liquidation penalty + 80% of interest + borrow fee)
@@ -31,12 +33,14 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     // Set up all addresses for the registry.
     function initialize(
         address lendingMarket,
+        address priceOracleAggregator,
         address treasury,
         address staking,
         address stablePool,
         address swapper
     ) external override onlyOwner {
         _addresses[LENDING_MARKET] = lendingMarket;
+        _addresses[PRICE_ORACLE_AGGREGATOR] = priceOracleAggregator;
         _addresses[TREASURY] = treasury;
         _addresses[STAKING] = staking;
         _addresses[STABLE_POOL] = stablePool;
@@ -53,6 +57,14 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
         onlyOwner
     {
         _addresses[LENDING_MARKET] = lendingMarket;
+    }
+
+    function getPriceOracleAggregator() external view returns (address) {
+        return _addresses[PRICE_ORACLE_AGGREGATOR];
+    }
+
+    function setPriceOracleAggregator(address priceOracleAggregator) external {
+        _addresses[PRICE_ORACLE_AGGREGATOR] = priceOracleAggregator;
     }
 
     function getTreasury() external view override returns (address) {

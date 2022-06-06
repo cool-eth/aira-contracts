@@ -8,12 +8,10 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20Metadat
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
 import "./interfaces/ILendingAddressRegistry.sol";
-import "./interfaces/IAirUSD.sol";
-import "./interfaces/IPriceOracle.sol";
+import "./interfaces/IPriceOracleAggregator.sol";
 import "./interfaces/ILendingMarket.sol";
-import "./interfaces/IAirUSD.sol";
 import "./interfaces/ISwapper.sol";
-import "./interfaces/IPriceOracle.sol";
+import "./interfaces/IAirUSD.sol";
 
 /**
  * @title LendingMarket
@@ -45,7 +43,6 @@ contract LendingMarket is
     /// @notice A struct for collateral settings
     struct CollateralSetting {
         bool isValid; // if collateral is valid or not
-        IPriceOracle oracle; // collateral price oracle (returns price in usd: 8 decimals)
         Rate creditLimitRate; // collateral borrow limit (e.g. USDs = 80%, BTCs = 70%, AVAXs=70%)
         Rate liqLimitRate; // collateral liquidation threshold rate (greater than credit limit rate)
         uint8 decimals; // collateral token decimals
@@ -173,7 +170,6 @@ contract LendingMarket is
         // add a new collateral
         collateralSettings[_token] = CollateralSetting({
             isValid: true,
-            oracle: IPriceOracle(_oracle),
             creditLimitRate: _creditLimitRate,
             liqLimitRate: _liqLimitRate,
             decimals: IERC20MetadataUpgradeable(_token).decimals()
@@ -421,7 +417,9 @@ contract LendingMarket is
         airUSD.burnFrom(msg.sender, debtAmount);
 
         // get price from collateral token oracle contract
-        uint256 price = collateralSettings[_token].oracle.getPrice(_token);
+        uint256 price = IPriceOracleAggregator(
+            addressProvider.getPriceOracleAggregator()
+        ).viewPriceInUSD(_token);
         // returnUSD = debtAmount + liquidation penalty (105%)
         uint256 returnUSD = debtAmount +
             (debtAmount * settings.liquidationPenalty.numerator) /
@@ -585,7 +583,9 @@ contract LendingMarket is
         returns (uint256)
     {
         // get price from collateral token oracle contract
-        uint256 price = collateralSettings[token].oracle.getPrice(token);
+        uint256 price = IPriceOracleAggregator(
+            addressProvider.getPriceOracleAggregator()
+        ).viewPriceInUSD(token);
 
         // convert to 18 decimals
         return

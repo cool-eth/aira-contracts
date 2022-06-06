@@ -6,6 +6,7 @@ import "@chainlink/contracts/src/v0.8/KeeperCompatible.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "./interfaces/ILendingAddressRegistry.sol";
 import "./interfaces/ILendingMarket.sol";
 import "./interfaces/IStablePool.sol";
 
@@ -17,17 +18,14 @@ contract LiquidationBot is KeeperCompatible {
 
     uint256 public constant MAX_SEARCH_COUNT = 100;
     uint256 public constant MAX_LIQUIDATION_COUNT = 3;
-    ILendingMarket public immutable lendingMarket;
-    IStablePool public immutable stablePool;
+
+    /// @notice address provider
+    ILendingAddressRegistry public addressProvider;
+    /// @notice AirUSD token address
     IERC20 public airUSD;
 
-    constructor(
-        address _lendingMarket,
-        address _stablePool,
-        address _airUSD
-    ) {
-        lendingMarket = ILendingMarket(_lendingMarket);
-        stablePool = IStablePool(_stablePool);
+    constructor(address _provider, address _airUSD) {
+        addressProvider = ILendingAddressRegistry(_provider);
         airUSD = IERC20(_airUSD);
     }
 
@@ -43,6 +41,10 @@ contract LiquidationBot is KeeperCompatible {
             MAX_LIQUIDATION_COUNT
         );
         uint256 idx;
+
+        ILendingMarket lendingMarket = ILendingMarket(
+            addressProvider.getLendingMarket()
+        );
 
         uint256 userCount = lendingMarket.getUserCount(token);
         for (uint256 i = 0; i < userCount; i++) {
@@ -68,6 +70,11 @@ contract LiquidationBot is KeeperCompatible {
             (address, address[])
         );
 
+        ILendingMarket lendingMarket = ILendingMarket(
+            addressProvider.getLendingMarket()
+        );
+        IStablePool stablePool = IStablePool(addressProvider.getStablePool());
+
         for (uint256 i = 0; i < liquidatableUsers.length; i++) {
             ILendingMarket.PositionView memory position = lendingMarket
                 .positionView(liquidatableUsers[i], token);
@@ -81,9 +88,15 @@ contract LiquidationBot is KeeperCompatible {
     }
 
     function onPrepare(uint256 amount, bytes calldata data) external {
+        IStablePool stablePool = IStablePool(addressProvider.getStablePool());
+
         require(msg.sender == address(stablePool), "not stable pool");
 
         (address token, address user) = abi.decode(data, (address, address));
+
+        ILendingMarket lendingMarket = ILendingMarket(
+            addressProvider.getLendingMarket()
+        );
 
         // approve and liquidate user's position
         airUSD.safeApprove(address(lendingMarket), amount);
