@@ -149,18 +149,15 @@ contract LendingMarket is
      * @notice add a new collateral token
      * @dev only owner can call this function
      * @param _token collateral token address
-     * @param _oracle collateral token price oracle
      * @param _creditLimitRate borrow limit
      * @param _liqLimitRate liquidation threshold rate
      */
     function addCollateralToken(
         address _token,
-        address _oracle,
         Rate memory _creditLimitRate,
         Rate memory _liqLimitRate
     ) external onlyOwner {
         // validates collateral settings
-        require(_oracle != address(0), "invalid oracle address");
         _validateRate(_creditLimitRate);
         _validateRate(_liqLimitRate);
 
