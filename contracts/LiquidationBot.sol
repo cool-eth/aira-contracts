@@ -52,7 +52,7 @@ contract LiquidationBot is KeeperCompatible {
             if (lendingMarket.liquidatable(user, token)) {
                 liquidatableUsers[idx++] = user;
 
-                if (idx == 3) {
+                if (idx == MAX_LIQUIDATION_COUNT) {
                     break;
                 }
             }
@@ -76,6 +76,10 @@ contract LiquidationBot is KeeperCompatible {
         IStablePool stablePool = IStablePool(addressProvider.getStablePool());
 
         for (uint256 i = 0; i < liquidatableUsers.length; i++) {
+            if (liquidatableUsers[i] == address(0)) {
+                break;
+            }
+
             ILendingMarket.PositionView memory position = lendingMarket
                 .positionView(liquidatableUsers[i], token);
             if (position.liquidatable) {

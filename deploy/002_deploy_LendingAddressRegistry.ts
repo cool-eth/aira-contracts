@@ -15,15 +15,17 @@ const deployLendingAddressRegistry: DeployFunction = async (
     log: true,
   })
 
-  await waitSeconds(10)
-  console.log('=====> Verifing ....')
-  try {
-    await hre.run('verify:verify', {
-      address: lendingAddressRegistry.address,
-      contract: 'contracts/LendingAddressRegistry.sol:LendingAddressRegistry',
-      constructorArguments: [],
-    })
-  } catch (_) {}
+  if (hre.network.name !== "localhost" && hre.network.name !== "hardhat") {
+    await waitSeconds(10)
+    console.log('=====> Verifing ....')
+    try {
+      await hre.run('verify:verify', {
+        address: lendingAddressRegistry.address,
+        contract: 'contracts/LendingAddressRegistry.sol:LendingAddressRegistry',
+        constructorArguments: [],
+      })
+    } catch (_) {}
+  }
 }
 
 export default deployLendingAddressRegistry
