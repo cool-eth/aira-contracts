@@ -59,7 +59,7 @@ contract EthUsdtLPSwapper is ISwapperImpl {
             // swap weth -> airUSD
             uint256 wethAmount = IERC20(weth).balanceOf(address(this));
 
-            IERC20(weth).approve(uniswapV2Router, wethAmount);
+            IERC20(weth).safeApprove(uniswapV2Router, wethAmount);
             address[] memory path = new address[](2);
             path[0] = weth;
             path[1] = airUSD;
@@ -79,7 +79,7 @@ contract EthUsdtLPSwapper is ISwapperImpl {
             // swap usdt -> airUSD
             uint256 usdtAmount = IERC20(usdt).balanceOf(address(this));
 
-            IERC20(usdt).approve(uniswapV2Router, usdtAmount);
+            IERC20(usdt).safeApprove(uniswapV2Router, usdtAmount);
             address[] memory path = new address[](3);
             path[0] = usdt;
             path[1] = weth;

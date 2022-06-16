@@ -38,7 +38,7 @@ contract StethAirUSDSwapper is ISwapperImpl {
         returns (uint256 amountOut)
     {
         IERC20(stETH).safeTransferFrom(msg.sender, address(this), _amountIn);
-        IERC20(stETH).safeApprove(uniswapV2Router, _amountIn);
+        IERC20(stETH).safeApprove(stETHCurve, _amountIn);
 
         // considering stETH is rebase token
         _amountIn = IERC20(stETH).balanceOf(address(this));
@@ -48,7 +48,7 @@ contract StethAirUSDSwapper is ISwapperImpl {
 
         // swap weth -> airUSD
         uint256 wethAmount = IERC20(weth).balanceOf(address(this));
-        IERC20(weth).approve(uniswapV2Router, wethAmount);
+        IERC20(weth).safeApprove(uniswapV2Router, wethAmount);
         address[] memory path = new address[](2);
         path[0] = weth;
         path[1] = airUSD;
