@@ -46,6 +46,7 @@ contract LendingMarket is
         Rate creditLimitRate; // collateral borrow limit (e.g. USDs = 80%, BTCs = 70%, AVAXs=70%)
         Rate liqLimitRate; // collateral liquidation threshold rate (greater than credit limit rate)
         uint8 decimals; // collateral token decimals
+        uint256 totalBorrowCap;
     }
 
     /// @notice A struct for users collateral position
@@ -83,6 +84,8 @@ contract LendingMarket is
     mapping(address => CollateralSetting) public collateralSettings; // token => collateral setting
     /// @notice users collateral position
     mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => position
+    /// @notice airUSD total borrows per collateral token
+    mapping(address => uint256) public totalBorrowsPerCollateral;
     /// @notice users array per collateral token
     mapping(address => address[]) internal marketUsers; // collateral token => users array
     /// @notice market user flag
@@ -155,7 +158,8 @@ contract LendingMarket is
     function addCollateralToken(
         address _token,
         Rate memory _creditLimitRate,
-        Rate memory _liqLimitRate
+        Rate memory _liqLimitRate,
+        uint256 _totalBorrowCap
     ) external onlyOwner {
         // validates collateral settings
         _validateRate(_creditLimitRate);
@@ -169,7 +173,8 @@ contract LendingMarket is
             isValid: true,
             creditLimitRate: _creditLimitRate,
             liqLimitRate: _liqLimitRate,
-            decimals: IERC20MetadataUpgradeable(_token).decimals()
+            decimals: IERC20MetadataUpgradeable(_token).decimals(),
+            totalBorrowCap: _totalBorrowCap
         });
         collateralTokens.push(_token);
     }
@@ -276,6 +281,12 @@ contract LendingMarket is
             "insufficient collateral"
         );
 
+        require(
+            totalBorrowsPerCollateral[_token] + _airUSDAmount <=
+                collateralSettings[_token].totalBorrowCap,
+            "borrow cap reached"
+        );
+
         // calculate AirUSD mint fee
         uint256 orgFee = (_airUSDAmount * settings.orgFeeRate.numerator) /
             settings.orgFeeRate.denominator;
@@ -297,6 +308,9 @@ contract LendingMarket is
         }
         position.debtPrincipal += _airUSDAmount;
         totalDebtAmount += _airUSDAmount;
+
+        // increase total borrows of the collateral market
+        totalBorrowsPerCollateral[_token] += _airUSDAmount;
 
         emit Borrowed(msg.sender, _airUSDAmount);
     }
@@ -384,6 +398,9 @@ contract LendingMarket is
         totalDebtPortion -= minusPortion;
         position.debtPrincipal -= paidPrincipal;
         position.debtPortion -= minusPortion;
+
+        // decrease total borrows of the collateral market (exclude only principls)
+        totalBorrowsPerCollateral[_token] -= paidPrincipal;
 
         emit Repay(msg.sender, _airUSDAmount);
     }
