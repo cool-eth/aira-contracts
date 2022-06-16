@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/ILendingAddressRegistry.sol";
 import "./interfaces/IStablePool.sol";
 import "./interfaces/IStablePoolKeeper.sol";
+import "./interfaces/IAirUSD.sol";
 
 /**
  * @title Stable Pool
@@ -53,9 +54,18 @@ contract StablePool is IStablePool, Ownable {
         require(addressProvider.isKeeper(msg.sender), "not keeper");
 
         uint256 reservesBefore = totalAirUSD();
+        uint256 mintRequires;
+        if (reservesBefore < _amount) {
+            mintRequires = _amount - reservesBefore;
+            IAirUSD(airUSD).mint(address(this), _amount);
+        }
 
         IERC20(airUSD).safeTransfer(msg.sender, _amount);
         IStablePoolKeeper(msg.sender).onPrepare(_amount, _data);
+
+        if (mintRequires > 0) {
+            IAirUSD(airUSD).burn(mintRequires);
+        }
 
         uint256 reservesAfter = totalAirUSD();
         require(reservesAfter >= reservesBefore, "not enough fund back");
