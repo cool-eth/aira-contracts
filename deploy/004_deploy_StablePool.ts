@@ -21,15 +21,17 @@ const deployStablePool: DeployFunction = async (
     log: true,
   })
 
-  await waitSeconds(10)
-  console.log('=====> Verifing ....')
-  try {
-    await hre.run('verify:verify', {
-      address: stablePool.address,
-      contract: 'contracts/StablePool.sol:StablePool',
-      constructorArguments: [lendingAddressRegistry.address, airUSD.address],
-    })
-  } catch (_) {}
+  if (hre.network.name !== "localhost" && hre.network.name !== "hardhat") {
+    await waitSeconds(10)
+    console.log('=====> Verifing ....')
+    try {
+      await hre.run('verify:verify', {
+        address: stablePool.address,
+        contract: 'contracts/StablePool.sol:StablePool',
+        constructorArguments: [lendingAddressRegistry.address, airUSD.address],
+      })
+    } catch (_) {}
+  }
 }
 
 export default deployStablePool

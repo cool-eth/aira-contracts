@@ -406,7 +406,7 @@ contract LendingMarket is
 
         // check if liquidation is available
         require(
-            debtAmount > _liquidateLimitUSD(_user, _token),
+            debtAmount >= _liquidateLimitUSD(_user, _token),
             "not liquidatable"
         );
 

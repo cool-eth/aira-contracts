@@ -45,16 +45,18 @@ const deployPriceOracleAggregator: DeployFunction = async (
       await priceOracleAggregator.updateOracleForAsset(weth, wethPriceAdapter)
     ).wait()
 
-    await waitSeconds(10)
-    console.log('=====> Verifing ....')
-    try {
-      await hre.run('verify:verify', {
-        address: priceOracleAggregator.address,
-        contract:
-          'contracts/external/oracle/PriceOracleAggregator.sol:PriceOracleAggregator',
-        constructorArguments: [],
-      })
-    } catch (_) {}
+    if (hre.network.name !== "localhost" && hre.network.name !== "hardhat") {
+      await waitSeconds(10)
+      console.log('=====> Verifing ....')
+      try {
+        await hre.run('verify:verify', {
+          address: priceOracleAggregator.address,
+          contract:
+            'contracts/external/oracle/PriceOracleAggregator.sol:PriceOracleAggregator',
+          constructorArguments: [],
+        })
+      } catch (_) {}
+    }
   }
 }
 

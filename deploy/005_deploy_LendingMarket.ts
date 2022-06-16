@@ -56,15 +56,17 @@ const deployLendingMarket: DeployFunction = async (
     },
   })
 
-  await waitSeconds(10)
-  console.log('=====> Verifing ....')
-  try {
-    await hre.run('verify:verify', {
-      address: await getImplementationAddress(lendingMarket.address),
-      contract: 'contracts/LendingMarket.sol:LendingMarket',
-      constructorArguments: [],
-    })
-  } catch (_) {}
+  if (hre.network.name !== "localhost" && hre.network.name !== "hardhat") {
+    await waitSeconds(10)
+    console.log('=====> Verifing ....')
+    try {
+      await hre.run('verify:verify', {
+        address: await getImplementationAddress(lendingMarket.address),
+        contract: 'contracts/LendingMarket.sol:LendingMarket',
+        constructorArguments: [],
+      })
+    } catch (_) {}
+  }
 }
 
 export default deployLendingMarket

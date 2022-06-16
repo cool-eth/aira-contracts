@@ -13,15 +13,17 @@ const deployAirUSD: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     log: true,
   })
 
-  await waitSeconds(10)
-  console.log('=====> Verifing ....')
-  try {
-    await hre.run('verify:verify', {
-      address: airUSD.address,
-      contract: 'contracts/AirUSD.sol:AirUSD',
-      constructorArguments: [],
-    })
-  } catch (_) {}
+  if (hre.network.name !== "localhost" && hre.network.name !== "hardhat") {
+    await waitSeconds(10)
+    console.log('=====> Verifing ....')
+    try {
+      await hre.run('verify:verify', {
+        address: airUSD.address,
+        contract: 'contracts/AirUSD.sol:AirUSD',
+        constructorArguments: [],
+      })
+    } catch (_) {}
+  }
 }
 
 export default deployAirUSD
