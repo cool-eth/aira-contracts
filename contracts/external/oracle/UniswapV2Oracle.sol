@@ -3,29 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../math/PRBMathSD59x18.sol";
 import "../../interfaces/IPriceOracleAggregator.sol";
-
-interface IUniswapV2Pair {
-    function token0() external view returns (address);
-
-    function token1() external view returns (address);
-
-    function decimals() external pure returns (uint8);
-
-    function price0CumulativeLast() external view returns (uint256);
-
-    function price1CumulativeLast() external view returns (uint256);
-
-    function getReserves()
-        external
-        view
-        returns (
-            uint112 reserve0,
-            uint112 reserve1,
-            uint32 blockTimestampLast
-        );
-
-    function totalSupply() external view returns (uint256);
-}
+import "../../interfaces/IUniswapV2Pair.sol";
 
 library UniswapV2Library {
     // returns sorted token addresses, used to handle return values from pairs sorted in this order
