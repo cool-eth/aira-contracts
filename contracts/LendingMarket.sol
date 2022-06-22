@@ -51,17 +51,27 @@ contract LendingMarket is
 
     /// @notice A struct for users collateral position
     struct Position {
-        uint256 amount; // collateral amount
+        uint256 shares; // collateral amount
         uint256 debtPrincipal; // debt amount
         uint256 debtPortion; // accumulated debt interest
     }
 
     /// @notice An event thats emitted when user deposits collateral
-    event Deposit(address indexed user, address indexed token, uint256 amount);
+    event Deposit(
+        address indexed user,
+        address indexed token,
+        uint256 amount,
+        uint256 shares
+    );
     /// @notice An event thats emitted when user borrows AirUSD
     event Borrowed(address indexed user, uint256 airUSDAmount);
     /// @notice An event thats emitted when user withdraws collateral
-    event Withdraw(address indexed user, address indexed token, uint256 amount);
+    event Withdraw(
+        address indexed user,
+        address indexed token,
+        uint256 amount,
+        uint256 shares
+    );
     /// @notice An event thats emitted when user repays AirUSD
     event Repay(address indexed user, uint256 airUSDAmount);
     /// @notice An event thats emitted when liquidator liquidates a user's position
@@ -82,6 +92,7 @@ contract LendingMarket is
     address[] public collateralTokens;
     /// @notice collateral settings
     mapping(address => CollateralSetting) public collateralSettings; // token => collateral setting
+    mapping(address => uint256) public collateralTotalShares; // token => total shares
     /// @notice users collateral position
     mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => position
     /// @notice airUSD total borrows per collateral token
@@ -236,6 +247,8 @@ contract LendingMarket is
     ) external nonReentrant {
         require(collateralSettings[_token].isValid, "invalid token");
 
+        uint256 shares = sharesFromAmount(_token, _amount);
+
         // get collateral from depositor
         IERC20MetadataUpgradeable(_token).safeTransferFrom(
             msg.sender,
@@ -244,7 +257,8 @@ contract LendingMarket is
         );
 
         // update a user's collateral position
-        userPositions[_onBehalfOf][_token].amount += _amount;
+        userPositions[_onBehalfOf][_token].shares += shares;
+        collateralTotalShares[_token] += shares;
 
         // check if new market user enters
         if (!isMarketUser[_onBehalfOf][_token]) {
@@ -252,7 +266,7 @@ contract LendingMarket is
             marketUsers[_token].push(_onBehalfOf);
         }
 
-        emit Deposit(_onBehalfOf, _token, _amount);
+        emit Deposit(_onBehalfOf, _token, _amount, shares);
     }
 
     /**
@@ -329,13 +343,19 @@ contract LendingMarket is
 
         Position storage position = userPositions[msg.sender][_token];
 
-        // check if withdraw amount is more than the collateral amount
-        require(position.amount >= _amount, "insufficient collateral");
+        uint256 shares = sharesFromAmount(_token, _amount);
+        // need to consider dust here
+        if (amountFromShares(_token, shares) < _amount) {
+            shares += 1;
+        }
+
+        // check if withdraw shares is more than the collateral shares
+        require(position.shares >= shares, "insufficient collateral");
 
         // calculate borrow limit after withdraw in USD
         uint256 creditLimitAfterWithdraw = (_tokenUSD(
             _token,
-            position.amount - _amount
+            amountFromShares(_token, position.shares - shares)
         ) * collateralSettings[_token].creditLimitRate.numerator) /
             collateralSettings[_token].creditLimitRate.denominator;
         // calculate debt amount in USD
@@ -348,12 +368,13 @@ contract LendingMarket is
         );
 
         // update user's collateral position
-        position.amount -= _amount;
+        position.shares -= shares;
+        collateralTotalShares[_token] -= shares;
 
         // transfer collateral to user
         IERC20MetadataUpgradeable(_token).safeTransfer(msg.sender, _amount);
 
-        emit Withdraw(msg.sender, _token, _amount);
+        emit Withdraw(msg.sender, _token, _amount, shares);
     }
 
     /**
@@ -444,7 +465,14 @@ contract LendingMarket is
             price /
             10**10;
 
-        require(collateralAmountIn <= position.amount, "not enough collateral");
+        uint256 userCollateralAmount = amountFromShares(
+            _token,
+            position.shares
+        );
+        require(
+            collateralAmountIn <= userCollateralAmount,
+            "not enough collateral"
+        );
 
         // swap collateral token in airUSD
         address swapper = addressProvider.getSwapper();
@@ -468,19 +496,20 @@ contract LendingMarket is
         _transferFee(liquidationPenalty / 2, false);
 
         // return rest collateral token to user
-        if (position.amount > collateralAmountIn) {
+        if (userCollateralAmount > collateralAmountIn) {
             IERC20MetadataUpgradeable(_token).safeTransfer(
                 _user,
-                position.amount - collateralAmountIn
+                userCollateralAmount - collateralAmountIn
             );
         }
 
         // update total info
         totalDebtAmount -= debtAmount;
         totalDebtPortion -= position.debtPortion;
+        collateralTotalShares[_token] -= position.shares;
 
         // remove user position
-        position.amount = 0;
+        position.shares = 0;
         position.debtPortion = 0;
         position.debtPrincipal = 0;
 
@@ -509,12 +538,13 @@ contract LendingMarket is
             ? debtPrincipal
             : debtCalculated;
 
+        uint256 collateralAmount = amountFromShares(_token, position.shares);
         return
             PositionView({
                 owner: _user,
                 token: _token,
-                amount: position.amount,
-                amountUSD: _tokenUSD(_token, position.amount),
+                amount: collateralAmount,
+                amountUSD: _tokenUSD(_token, collateralAmount),
                 creditLimitUSD: _creditLimitUSD(_user, _token),
                 debtPrincipal: position.debtPrincipal,
                 debtInterest: debtAmount - position.debtPrincipal,
@@ -556,6 +586,42 @@ contract LendingMarket is
         returns (address)
     {
         return marketUsers[_token][_index];
+    }
+
+    function collateralTotalAmount(address _token)
+        public
+        view
+        returns (uint256)
+    {
+        return IERC20(_token).balanceOf(address(this));
+    }
+
+    function amountFromShares(address _token, uint256 _shares)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 totalShares = collateralTotalShares[_token];
+        uint256 totalAmount = collateralTotalAmount(_token);
+        if (totalShares == 0 || totalAmount == 0) {
+            return _shares;
+        }
+
+        return (_shares * totalAmount) / totalShares;
+    }
+
+    function sharesFromAmount(address _token, uint256 _amount)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 totalShares = collateralTotalShares[_token];
+        uint256 totalAmount = collateralTotalAmount(_token);
+        if (totalShares == 0 || totalAmount == 0) {
+            return _amount;
+        }
+
+        return (_amount * totalShares) / totalAmount;
     }
 
     /// INTERNAL FUNCTIONS
@@ -618,7 +684,10 @@ contract LendingMarket is
         view
         returns (uint256)
     {
-        uint256 amount = userPositions[_user][_token].amount;
+        uint256 amount = amountFromShares(
+            _token,
+            userPositions[_user][_token].shares
+        );
         uint256 totalUSD = _tokenUSD(_token, amount);
         return
             (totalUSD * collateralSettings[_token].creditLimitRate.numerator) /
@@ -636,7 +705,10 @@ contract LendingMarket is
         view
         returns (uint256)
     {
-        uint256 amount = userPositions[_user][_token].amount;
+        uint256 amount = amountFromShares(
+            _token,
+            userPositions[_user][_token].shares
+        );
         uint256 totalUSD = _tokenUSD(_token, amount);
         return
             (totalUSD * collateralSettings[_token].liqLimitRate.numerator) /
