@@ -36,7 +36,7 @@ const deployPriceOracleAggregator: DeployFunction = async (
       await deploy('WETHChainlinkUSDAdapter', {
         from: deployer.address,
         contract: 'ChainlinkUSDAdapter',
-        args: [weth, priceFeed],
+        args: [weth, priceFeed, ethers.constants.AddressZero,  priceOracleAggregator.address],
         log: true,
       })
     ).address

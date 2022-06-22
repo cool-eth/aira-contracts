@@ -3,19 +3,33 @@ pragma solidity ^0.8.0;
 
 import "../../interfaces/IOracle.sol";
 import "../../interfaces/IChainlinkV3Aggregator.sol";
+import "../../interfaces/IPriceOracleAggregator.sol";
 
 contract ChainlinkUSDAdapter is IOracle {
     /// @notice the asset with the price oracle
     address public immutable asset;
 
-    /// @notice chainlink aggregator with price in USD
-    IChainlinkV3Aggregator public immutable aggregator;
+    /// @notice chainlink aggregator with price in base asset
+    IChainlinkV3Aggregator public immutable chainlinkAggregator;
 
-    constructor(address _asset, address _aggregator) {
+    /// @notice the base asset of chainlink aggregator
+    address public immutable baseAsset;
+
+    /// @notice oracle that returns price in USD
+    IPriceOracleAggregator public immutable aggregator;
+
+    constructor(
+        address _asset,
+        address _aggregator,
+        address _baseAsset,
+        address _priceOracleAggregator
+    ) {
         require(address(_aggregator) != address(0), "invalid aggregator");
 
         asset = _asset;
-        aggregator = IChainlinkV3Aggregator(_aggregator);
+        chainlinkAggregator = IChainlinkV3Aggregator(_aggregator);
+        baseAsset = _baseAsset;
+        aggregator = IPriceOracleAggregator(_priceOracleAggregator);
     }
 
     function adjustDecimal(
@@ -33,7 +47,20 @@ contract ChainlinkUSDAdapter is IOracle {
 
     /// @dev returns the latest price of asset
     function viewPriceInUSD() external view override returns (uint256) {
-        (, int256 priceC, , , ) = aggregator.latestRoundData();
-        return adjustDecimal(uint256(priceC), aggregator.decimals(), 8);
+        (, int256 priceC, , , ) = chainlinkAggregator.latestRoundData();
+
+        uint256 priceInBaseAsset = adjustDecimal(
+            uint256(priceC),
+            chainlinkAggregator.decimals(),
+            8
+        ); // 8 decimals
+
+        if (baseAsset != address(0)) {
+            return
+                (priceInBaseAsset * aggregator.viewPriceInUSD(baseAsset)) /
+                10**8;
+        }
+
+        return priceInBaseAsset;
     }
 }

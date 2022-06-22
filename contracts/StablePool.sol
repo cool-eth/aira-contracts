@@ -78,9 +78,10 @@ contract StablePool is IStablePool, Ownable {
     }
 
     function depositFor(uint256 _amount, address _onBehalf) public {
+        uint256 shares = sharesFromAmount(_amount);
+
         IERC20(airUSD).safeTransferFrom(msg.sender, address(this), _amount);
 
-        uint256 shares = sharesFromAmount(_amount);
         balanceOf[_onBehalf] += shares;
         totalSupply += shares;
 

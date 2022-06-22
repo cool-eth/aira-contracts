@@ -205,7 +205,8 @@ describe("LendingMarket", () => {
         {
           numerator: 75,
           denominator: 100,
-        } // 75%
+        }, // 75%
+        parseUnits("1000000")
       );
     });
 
@@ -393,7 +394,8 @@ describe("LendingMarket", () => {
         {
           numerator: 75,
           denominator: 100,
-        } // 75%
+        }, // 75%
+        parseUnits("1000000")
       );
     });
 
@@ -406,8 +408,11 @@ describe("LendingMarket", () => {
         .connect(user)
         .deposit(STETH, parseUnits("1"), user.address);
       const position = await lendingMarket.positionView(user.address, STETH);
-      expect(position.amount).to.equal(parseUnits("1"));
-      expect(position.amountUSD).to.equal(parseUnits("1").mul(STETH_PRICE));
+      expect(position.amount).to.closeTo(parseUnits("1"), 1);
+      expect(position.amountUSD).to.closeTo(
+        parseUnits("1").mul(STETH_PRICE),
+        3000
+      );
     });
 
     it("can't borrow more than collateral limit", async () => {
@@ -553,7 +558,8 @@ describe("LendingMarket", () => {
         {
           numerator: 75,
           denominator: 100,
-        } // 75%
+        }, // 75%
+        parseUnits("1000000")
       );
     });
 
