@@ -164,9 +164,6 @@ describe("LendingMarket", () => {
       ETH_USDT_LP,
       ethUsdtOracle.address
     );
-
-    // prepare 1M airUSD in stable pool for liquidation
-    await airUSD.mint(stablePool.address, parseUnits("1000000"));
   });
 
   let snapId: string;
@@ -321,6 +318,9 @@ describe("LendingMarket", () => {
     });
 
     it("should be able to liquidate", async () => {
+      // prepare 1M airUSD in stable pool for liquidation
+      await airUSD.mint(stablePool.address, parseUnits("1000000"));
+
       await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
       await lendingMarket
         .connect(user)
@@ -358,6 +358,63 @@ describe("LendingMarket", () => {
         stablePool.address
       );
 
+      await liquidationBot.connect(bot).performUpkeep(result.performData);
+
+      position = await lendingMarket.positionView(user.address, WETH);
+      expect(position.amount).to.equal(0);
+
+      // take fees into stable pool
+      expect(await airUSD.balanceOf(stablePool.address)).gt(
+        stablePoolBalanceBefore
+      );
+
+      // take fees into treasury and staking address
+      expect(await airUSD.balanceOf(treasury.address)).gt(0);
+      expect(await airUSD.balanceOf(staking.address)).gt(0);
+    });
+
+    it("should be able to liquidate (without enough liquidity in stable pool)", async () => {
+      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
+      await lendingMarket
+        .connect(user)
+        .deposit(WETH, parseUnits("1"), user.address);
+
+      let position = await lendingMarket.positionView(user.address, WETH);
+
+      const borrowAmount = position.creditLimitUSD;
+      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+
+      position = await lendingMarket.positionView(user.address, WETH);
+      expect(position.debtPrincipal).to.equal(borrowAmount);
+      expect(position.liquidatable).to.equal(false);
+
+      // check liquidatable from liquidation bot
+      let result = await liquidationBot.checkUpkeep(
+        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+      );
+      expect(result.upkeepNeeded).to.false;
+
+      // 10% weth price dump
+      await wethOracle.setViewPriceInUSD(
+        parseUnits(WETH_PRICE, 8).mul(90).div(100)
+      );
+
+      expect(await lendingMarket.liquidatable(user.address, WETH)).to.be.true;
+
+      // check liquidatable from liquidation bot
+      result = await liquidationBot.checkUpkeep(
+        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+      );
+      expect(result.upkeepNeeded).to.true;
+
+      const stablePoolBalanceBefore = await airUSD.balanceOf(
+        stablePool.address
+      );
+
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).revertedWith("missing role");
+      await airUSD.grantRole(await airUSD.MINTER_ROLE(), stablePool.address);
       await liquidationBot.connect(bot).performUpkeep(result.performData);
 
       position = await lendingMarket.positionView(user.address, WETH);
@@ -495,6 +552,9 @@ describe("LendingMarket", () => {
     });
 
     it("should be able to liquidate", async () => {
+      // prepare 1M airUSD in stable pool for liquidation
+      await airUSD.mint(stablePool.address, parseUnits("1000000"));
+
       await steth.connect(user).approve(lendingMarket.address, parseUnits("1"));
       await lendingMarket
         .connect(user)
@@ -524,6 +584,53 @@ describe("LendingMarket", () => {
         stablePool.address
       );
       await liquidationBot.connect(bot).performUpkeep(result.performData);
+      position = await lendingMarket.positionView(user.address, STETH);
+      expect(position.amount).to.equal(0);
+      // take fees into stable pool
+      expect(await airUSD.balanceOf(stablePool.address)).gt(
+        stablePoolBalanceBefore
+      );
+      // take fees into treasury and staking address
+      expect(await airUSD.balanceOf(treasury.address)).gt(0);
+      expect(await airUSD.balanceOf(staking.address)).gt(0);
+    });
+
+    it("should be able to liquidate (without enough liquidity in stable pool)", async () => {
+      await steth.connect(user).approve(lendingMarket.address, parseUnits("1"));
+      await lendingMarket
+        .connect(user)
+        .deposit(STETH, parseUnits("1"), user.address);
+      let position = await lendingMarket.positionView(user.address, STETH);
+      const borrowAmount = position.creditLimitUSD;
+      await lendingMarket.connect(user).borrow(STETH, borrowAmount);
+      position = await lendingMarket.positionView(user.address, STETH);
+      expect(position.debtPrincipal).to.equal(borrowAmount);
+      expect(position.liquidatable).to.equal(false);
+      // check liquidatable from liquidation bot
+      let result = await liquidationBot.checkUpkeep(
+        ethers.utils.defaultAbiCoder.encode(["address"], [steth.address])
+      );
+      expect(result.upkeepNeeded).to.false;
+      // 10% steth price dump
+      await stethOracle.setViewPriceInUSD(
+        parseUnits(STETH_PRICE, 8).mul(90).div(100)
+      );
+      expect(await lendingMarket.liquidatable(user.address, STETH)).to.be.true;
+      // check liquidatable from liquidation bot
+      result = await liquidationBot.checkUpkeep(
+        ethers.utils.defaultAbiCoder.encode(["address"], [steth.address])
+      );
+      expect(result.upkeepNeeded).to.true;
+      const stablePoolBalanceBefore = await airUSD.balanceOf(
+        stablePool.address
+      );
+
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).revertedWith("missing role");
+      await airUSD.grantRole(await airUSD.MINTER_ROLE(), stablePool.address);
+      await liquidationBot.connect(bot).performUpkeep(result.performData);
+
       position = await lendingMarket.positionView(user.address, STETH);
       expect(position.amount).to.equal(0);
       // take fees into stable pool
@@ -687,6 +794,9 @@ describe("LendingMarket", () => {
     });
 
     it("should be able to liquidate", async () => {
+      // prepare 1M airUSD in stable pool for liquidation
+      await airUSD.mint(stablePool.address, parseUnits("1000000"));
+
       await ethUsdtLp
         .connect(user)
         .approve(lendingMarket.address, parseUnits("0.001"));
@@ -722,6 +832,59 @@ describe("LendingMarket", () => {
         stablePool.address
       );
       await liquidationBot.connect(bot).performUpkeep(result.performData);
+      position = await lendingMarket.positionView(user.address, ETH_USDT_LP);
+      expect(position.amount).to.equal(0);
+      // take fees into stable pool
+      expect(await airUSD.balanceOf(stablePool.address)).gt(
+        stablePoolBalanceBefore
+      );
+      // take fees into treasury and staking address
+      expect(await airUSD.balanceOf(treasury.address)).gt(0);
+      expect(await airUSD.balanceOf(staking.address)).gt(0);
+    });
+
+    it("should be able to liquidate (without enough liquidity in stable pool)", async () => {
+      await ethUsdtLp
+        .connect(user)
+        .approve(lendingMarket.address, parseUnits("0.001"));
+      await lendingMarket
+        .connect(user)
+        .deposit(ETH_USDT_LP, parseUnits("0.001"), user.address);
+      let position = await lendingMarket.positionView(
+        user.address,
+        ETH_USDT_LP
+      );
+      const borrowAmount = position.creditLimitUSD;
+      await lendingMarket.connect(user).borrow(ETH_USDT_LP, borrowAmount);
+      position = await lendingMarket.positionView(user.address, ETH_USDT_LP);
+      expect(position.debtPrincipal).to.equal(borrowAmount);
+      expect(position.liquidatable).to.equal(false);
+      // check liquidatable from liquidation bot
+      let result = await liquidationBot.checkUpkeep(
+        ethers.utils.defaultAbiCoder.encode(["address"], [ethUsdtLp.address])
+      );
+      expect(result.upkeepNeeded).to.false;
+      // 10% eth-usdt price dump
+      await ethUsdtOracle.setViewPriceInUSD(
+        parseUnits(ETH_USDT_LP_PRICE, 8).mul(90).div(100)
+      );
+      expect(await lendingMarket.liquidatable(user.address, ETH_USDT_LP)).to.be
+        .true;
+      // check liquidatable from liquidation bot
+      result = await liquidationBot.checkUpkeep(
+        ethers.utils.defaultAbiCoder.encode(["address"], [ethUsdtLp.address])
+      );
+      expect(result.upkeepNeeded).to.true;
+      const stablePoolBalanceBefore = await airUSD.balanceOf(
+        stablePool.address
+      );
+
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).revertedWith("missing role");
+      await airUSD.grantRole(await airUSD.MINTER_ROLE(), stablePool.address);
+      await liquidationBot.connect(bot).performUpkeep(result.performData);
+
       position = await lendingMarket.positionView(user.address, ETH_USDT_LP);
       expect(position.amount).to.equal(0);
       // take fees into stable pool
