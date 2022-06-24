@@ -11,6 +11,8 @@ import {
 import {
   AirUSD,
   IERC20,
+  ILidoOracle,
+  ILidoToken,
   IUniswapV2Router,
   LendingAddressRegistry,
   LendingMarket,
@@ -29,6 +31,58 @@ const ETH_USDT_LP = "0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852";
 const WETH_PRICE = "2000";
 const STETH_PRICE = "2100";
 const ETH_USDT_LP_PRICE = "20000000";
+const LIDO_ORACLE_ADDRESS = "0x442af784a788a5bd6f42a01ebe9f287a871243fb";
+
+const rebaseLido = async () => {
+  const lidoToken = <ILidoToken>await ethers.getContractAt("ILidoToken", STETH);
+  const lidoOracle = <ILidoOracle>(
+    await ethers.getContractAt("ILidoOracle", LIDO_ORACLE_ADDRESS)
+  );
+  const steth = <IERC20>(
+    await ethers.getContractAt("contracts/interfaces/IERC20.sol:IERC20", STETH)
+  );
+
+  console.log(
+    "totalSupply before rebase =",
+    (await steth.totalSupply()).toString()
+  );
+
+  const beaconStat = await lidoToken.getBeaconStat();
+  const expectedEpochId = await lidoOracle.getExpectedEpochId();
+  const quorum = await lidoOracle.getQuorum();
+  const oracleMembers = await lidoOracle.getOracleMembers();
+
+  // prepare beacon report
+  const epochId = expectedEpochId;
+  const beaconBalance = beaconStat.beaconBalance
+    .add(ethers.utils.parseUnits("1000", 18))
+    .div(ethers.utils.parseUnits("1", 9));
+  const beaconValidators = beaconStat.beaconValidators.add(10);
+
+  const signer = (await ethers.getSigners())[0];
+
+  for (let i = 0; i < quorum.toNumber(); i++) {
+    await network.provider.request({
+      method: "hardhat_impersonateAccount",
+      params: [oracleMembers[i]],
+    });
+    const member = await ethers.getSigner(oracleMembers[i]);
+
+    await signer.sendTransaction({
+      from: signer.address,
+      to: member.address,
+      value: ethers.utils.parseEther("0.1"),
+    });
+    await lidoOracle
+      .connect(member)
+      .reportBeacon(epochId, beaconBalance, beaconValidators);
+  }
+
+  console.log(
+    "totalSupply after rebase =",
+    (await steth.totalSupply()).toString()
+  );
+};
 
 describe("LendingMarket", () => {
   let deployer: SignerWithAddress,
@@ -491,7 +545,34 @@ describe("LendingMarket", () => {
       ).to.revertedWith("insufficient collateral");
       await lendingMarket.connect(user).withdraw(STETH, parseUnits("0.5"));
       position = await lendingMarket.positionView(user.address, STETH);
-      expect(position.amount).to.equal(parseUnits("0.5"));
+      expect(position.amount).to.closeTo(parseUnits("0.5"), 1);
+    });
+
+    it("should be able to withdraw (will get more than deposit if rebase happens)", async () => {
+      await steth.connect(user).approve(lendingMarket.address, parseUnits("1"));
+      await lendingMarket
+        .connect(user)
+        .deposit(STETH, parseUnits("1"), user.address);
+
+      let position = await lendingMarket.positionView(user.address, STETH);
+      console.log(
+        "collateral amount before rebase = ",
+        position.amount.toString()
+      );
+      expect(position.amount).to.closeTo(parseUnits("1"), 1);
+
+      await rebaseLido();
+
+      position = await lendingMarket.positionView(user.address, STETH);
+      console.log(
+        "collateral amount after rebase = ",
+        position.amount.toString()
+      );
+      expect(position.amount).to.gt(parseUnits("1"));
+
+      await lendingMarket.connect(user).withdraw(STETH, parseUnits("0.5"));
+      position = await lendingMarket.positionView(user.address, STETH);
+      expect(position.amount).to.gt(parseUnits("0.5"));
     });
 
     it("should be able to liquidate", async () => {
