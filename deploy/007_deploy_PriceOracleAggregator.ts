@@ -3,6 +3,8 @@ import { DeployFunction } from 'hardhat-deploy/types'
 import { PriceOracleAggregator } from '../types'
 import { waitSeconds } from '../helper/utils'
 
+const ETH_PRICE = "1200";
+
 const deployPriceOracleAggregator: DeployFunction = async (
   hre: HardhatRuntimeEnvironment
 ) => {
@@ -23,23 +25,31 @@ const deployPriceOracleAggregator: DeployFunction = async (
   {
     // WETH
     let weth = '',
-      priceFeed = ''
+    wethPriceAdapter = ''
     if (network.name == 'mainnet') {
       weth = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
-      priceFeed = '0x9326BFA02ADD2366b30bacB125260Af641031331'
+      const priceFeed = '0x9326BFA02ADD2366b30bacB125260Af641031331'
+
+      wethPriceAdapter = (
+        await deploy('WETHChainlinkUSDAdapter', {
+          from: deployer.address,
+          contract: 'ChainlinkUSDAdapter',
+          args: [weth, priceFeed, ethers.constants.AddressZero,  priceOracleAggregator.address],
+          log: true,
+        })
+      ).address
     } else {
       weth = (await ethers.getContract('WETH')).address
-      priceFeed = '0x8A753747A1Fa494EC906cE90E9f37563A8AF630e'
+      
+      wethPriceAdapter = (
+        await deploy('WETHMockChainlinkUSDAdapter', {
+          from: deployer.address,
+          contract: 'MockChainlinkUSDAdapter',
+          args: [ethers.utils.parseUnits(ETH_PRICE, 18)],
+          log: true,
+        })
+      ).address
     }
-
-    const wethPriceAdapter = (
-      await deploy('WETHChainlinkUSDAdapter', {
-        from: deployer.address,
-        contract: 'ChainlinkUSDAdapter',
-        args: [weth, priceFeed, ethers.constants.AddressZero,  priceOracleAggregator.address],
-        log: true,
-      })
-    ).address
 
     await (
       await priceOracleAggregator.updateOracleForAsset(weth, wethPriceAdapter)
