@@ -45,7 +45,7 @@ const deployPriceOracleAggregator: DeployFunction = async (
         await deploy('WETHMockChainlinkUSDAdapter', {
           from: deployer.address,
           contract: 'MockChainlinkUSDAdapter',
-          args: [ethers.utils.parseUnits(ETH_PRICE, 18)],
+          args: [ethers.utils.parseUnits(ETH_PRICE, 8)],
           log: true,
         })
       ).address
