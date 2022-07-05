@@ -1,0 +1,95 @@
+{
+  "address": "0x083172157c86024BDcDaE863e1588F1973391689",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "price",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "price",
+          "type": "uint256"
+        }
+      ],
+      "name": "setViewPriceInUSD",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "viewPriceInUSD",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0x995428ab333818a8b80ee64a0e2fcd1cd098ef4f924722139791f94a9c2fc182",
+  "receipt": {
+    "to": null,
+    "from": "0xA86A69F7DE42254A2251667d0dcE3e9D335b35a5",
+    "contractAddress": "0x083172157c86024BDcDaE863e1588F1973391689",
+    "transactionIndex": 11,
+    "gasUsed": "114960",
+    "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "blockHash": "0x395379945c2903ee63a39c1d5e304912e644c9a399368193bc905712a475f3ba",
+    "transactionHash": "0x995428ab333818a8b80ee64a0e2fcd1cd098ef4f924722139791f94a9c2fc182",
+    "logs": [],
+    "blockNumber": 10971297,
+    "cumulativeGasUsed": "2665919",
+    "status": 1,
+    "byzantium": true
+  },
+  "args": [
+    "100000000"
+  ],
+  "numDeployments": 1,
+  "solcInputHash": "76ebcfe9d7976c2c0fe27f6ef733b634",
+  "metadata": "{\"compiler\":{\"version\":\"0.8.9+commit.e5eed63a\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"price\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"price\",\"type\":\"uint256\"}],\"name\":\"setViewPriceInUSD\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"viewPriceInUSD\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/mock/MockChainlinkUSDAdapter.sol\":\"MockChainlinkUSDAdapter\"},\"evmVersion\":\"london\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\",\"useLiteralContent\":true},\"optimizer\":{\"enabled\":true,\"runs\":200},\"remappings\":[]},\"sources\":{\"contracts/interfaces/IChainlinkV3Aggregator.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\npragma solidity ^0.8.0;\\n\\ninterface IChainlinkV3Aggregator {\\n  function decimals() external view returns (uint8);\\n\\n  function latestRoundData()\\n    external\\n    view\\n    returns (\\n      uint80 roundId,\\n      int256 answer,\\n      uint256 startedAt,\\n      uint256 updatedAt,\\n      uint80 answeredInRound\\n    );\\n}\\n\",\"keccak256\":\"0xd44d7e4370cfb8dca13abcba4621f9eece53054a06f41a277d931cf0d7af40e0\",\"license\":\"MIT\"},\"contracts/interfaces/IOracle.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\npragma solidity ^0.8.0;\\n\\ninterface IOracle {\\n    function viewPriceInUSD() external view returns (uint256);\\n}\\n\",\"keccak256\":\"0xe5b34342f79a145ea2d3e8da896db1c69997e92f3c9ea10a547b8f1a3667fb85\",\"license\":\"MIT\"},\"contracts/mock/MockChainlinkUSDAdapter.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\npragma solidity ^0.8.0;\\n\\nimport \\\"../interfaces/IOracle.sol\\\";\\nimport \\\"../interfaces/IChainlinkV3Aggregator.sol\\\";\\n\\ncontract MockChainlinkUSDAdapter is IOracle {\\n    uint256 public override viewPriceInUSD;\\n\\n    constructor(uint256 price) {\\n        viewPriceInUSD = price;\\n    }\\n\\n    function setViewPriceInUSD(uint256 price) external {\\n        viewPriceInUSD = price;\\n    }\\n}\\n\",\"keccak256\":\"0x547b58576d57589a396d3ea726838bf4709601ebc8b1858469a9fdc0ca174e0d\",\"license\":\"MIT\"}},\"version\":1}",
+  "bytecode": "0x608060405234801561001057600080fd5b5060405161010f38038061010f83398101604081905261002f91610037565b600055610050565b60006020828403121561004957600080fd5b5051919050565b60b18061005e6000396000f3fe6080604052348015600f57600080fd5b506004361060325760003560e01c80634b40c158146037578063f55fa17f146049575b600080fd5b604760423660046063565b600055565b005b605160005481565b60405190815260200160405180910390f35b600060208284031215607457600080fd5b503591905056fea2646970667358221220a8c58699d55fce9f68545a8a27c611ebb962de25cd1c84e16a12b531db863a3a64736f6c63430008090033",
+  "deployedBytecode": "0x6080604052348015600f57600080fd5b506004361060325760003560e01c80634b40c158146037578063f55fa17f146049575b600080fd5b604760423660046063565b600055565b005b605160005481565b60405190815260200160405180910390f35b600060208284031215607457600080fd5b503591905056fea2646970667358221220a8c58699d55fce9f68545a8a27c611ebb962de25cd1c84e16a12b531db863a3a64736f6c63430008090033",
+  "devdoc": {
+    "kind": "dev",
+    "methods": {},
+    "version": 1
+  },
+  "userdoc": {
+    "kind": "user",
+    "methods": {},
+    "version": 1
+  },
+  "storageLayout": {
+    "storage": [
+      {
+        "astId": 12520,
+        "contract": "contracts/mock/MockChainlinkUSDAdapter.sol:MockChainlinkUSDAdapter",
+        "label": "viewPriceInUSD",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_uint256"
+      }
+    ],
+    "types": {
+      "t_uint256": {
+        "encoding": "inplace",
+        "label": "uint256",
+        "numberOfBytes": "32"
+      }
+    }
+  }
+}
