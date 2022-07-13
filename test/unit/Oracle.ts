@@ -1,10 +1,10 @@
 import { deployments, ethers } from "hardhat";
-import { deployContract } from "../helper/contracts";
+import { deployContract } from "../../helper/contracts";
 import {
   ChainlinkUSDAdapter,
   PriceOracleAggregator,
   UniswapV2LPOracle,
-} from "../types";
+} from "../../types";
 
 const USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";

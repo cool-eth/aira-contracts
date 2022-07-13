@@ -63,7 +63,10 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
         return _addresses[PRICE_ORACLE_AGGREGATOR];
     }
 
-    function setPriceOracleAggregator(address priceOracleAggregator) external {
+    function setPriceOracleAggregator(address priceOracleAggregator)
+        external
+        onlyOwner
+    {
         _addresses[PRICE_ORACLE_AGGREGATOR] = priceOracleAggregator;
     }
 
@@ -111,12 +114,13 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     }
 
     function addKeeper(address keeper) external override onlyOwner {
+        require(!isKeeper(keeper), "already exists");
         _keepers[_keeperIndexTracker.current()] = keeper;
         _keeperIndexTracker.increment();
         _isKeeper[keeper] = true;
     }
 
-    function isKeeper(address keeper) external view override returns (bool) {
+    function isKeeper(address keeper) public view override returns (bool) {
         return _isKeeper[keeper];
     }
 
