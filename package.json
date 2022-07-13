@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "hardhat test",
+    "coverage": "hardhat coverage",
     "deploy:kovan": "hardhat deploy --network kovan",
     "deploy:rinkeby": "hardhat deploy --network rinkeby"
   },
@@ -34,6 +35,7 @@
     "@openzeppelin/contracts-upgradeable": "^4.1.0",
     "dotenv": "^12.0.3",
     "hardhat-deploy": "^0.11.10",
-    "merkletreejs": "^0.2.24"
+    "merkletreejs": "^0.2.24",
+    "solidity-coverage": "^0.7.21"
   }
 }

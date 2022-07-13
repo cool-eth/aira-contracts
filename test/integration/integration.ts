@@ -7,7 +7,7 @@ import {
   deployEthUsdtLPSwapper,
   deployStethAirUSDSwapper,
   deployUniswapV2Swapper,
-} from "../helper/contracts";
+} from "../../helper/contracts";
 import {
   AirUSD,
   IERC20,
@@ -21,7 +21,7 @@ import {
   PriceOracleAggregator,
   StablePool,
   Swapper,
-} from "../types";
+} from "../../types";
 
 const UNISWAP_V2_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
 const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -57,7 +57,7 @@ const rebaseLido = async () => {
   const beaconBalance = beaconStat.beaconBalance
     .add(ethers.utils.parseUnits("1000", 18))
     .div(ethers.utils.parseUnits("1", 9));
-  const beaconValidators = beaconStat.beaconValidators.add(10);
+  const beaconValidators = beaconStat.beaconValidators;
 
   const signer = (await ethers.getSigners())[0];
 
@@ -73,6 +73,7 @@ const rebaseLido = async () => {
       to: member.address,
       value: ethers.utils.parseEther("0.1"),
     });
+
     await lidoOracle
       .connect(member)
       .reportBeacon(epochId, beaconBalance, beaconValidators);
