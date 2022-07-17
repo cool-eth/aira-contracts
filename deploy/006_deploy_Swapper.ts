@@ -20,7 +20,7 @@ const deploySwapper: DeployFunction = async (
       await deploy('WETH', {
         from: deployer.address,
         contract: 'MockToken',
-        args: ['Mocked WETH', 'WETH'],
+        args: ['Mocked WETH', 'WETH', 18],
         log: true,
       })
     ).address
@@ -32,7 +32,7 @@ const deploySwapper: DeployFunction = async (
         await hre.run('verify:verify', {
           address: weth,
           contract: 'contracts/mock/MockToken.sol:MockToken',
-          constructorArguments: ['Mocked WETH', 'WETH'],
+          constructorArguments: ['Mocked WETH', 'WETH', 18],
         })
       } catch (_) {}
     }
