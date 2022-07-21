@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.9;
 
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
-import "../math/PRBMath.sol";
-import "../../interfaces/IPriceOracleAggregator.sol";
-import "../../interfaces/IUniswapV2Pair.sol";
+import "../lib/math/PRBMath.sol";
+import "../interfaces/IPriceOracleAggregator.sol";
+import "../external/uniswapV2/IUniswapV2Pair.sol";
 
 /**
  * @title Uni-v2 LP oracle.

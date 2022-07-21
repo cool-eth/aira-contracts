@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.9;
 
 import "../interfaces/IOracle.sol";
-import "../interfaces/IChainlinkV3Aggregator.sol";
+import "../external/chainlink/IChainlinkV3Aggregator.sol";
 
 contract MockChainlinkUSDAdapter is IOracle {
     uint256 public override viewPriceInUSD;
