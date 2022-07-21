@@ -6,8 +6,19 @@ import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.so
 import "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 
 contract MockToken is ERC20 {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
-        _mint(msg.sender, 100000000 * 1e18);
+    uint8 private __decimals;
+
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint8 _decimals
+    ) ERC20(name, symbol) {
+        __decimals = _decimals;
+        _mint(msg.sender, 100000000 * (10**_decimals));
+    }
+
+    function decimals() public view override returns (uint8) {
+        return __decimals;
     }
 
     function mint(uint256 amount) external {
