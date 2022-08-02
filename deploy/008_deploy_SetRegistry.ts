@@ -46,6 +46,6 @@ deploySetRegistry.dependencies = [
   "LiquidationBot",
   "StablePool",
   "LendingMarket",
-  "Swapper",
   "PriceOracleAggregator",
+  "Swapper",
 ];

@@ -71,7 +71,9 @@ library UniswapV2OracleLibrary {
         ) = IUniswapV2Pair(pair).getReserves();
         if (blockTimestampLast != blockTimestamp) {
             // subtraction overflow is desired
-            uint32 timeElapsed = blockTimestamp - blockTimestampLast;
+            uint256 timeElapsed = blockTimestamp > blockTimestampLast
+                ? blockTimestamp - blockTimestampLast
+                : uint256(blockTimestamp) + 2**32 - uint256(blockTimestampLast);
             // addition overflow is desired
 
             // counterfactual
@@ -80,7 +82,7 @@ library UniswapV2OracleLibrary {
                 int256(uint256(reserve1)),
                 int256(uint256(reserve0))
             );
-            price0Cumulative += uint256(ratio0) * uint256(timeElapsed);
+            price0Cumulative += uint256(ratio0) * timeElapsed;
 
             // counterfactual
             // price1Cumulative += uint(FixedPoint.fraction(reserve0, reserve1)._x) * timeElapsed;
@@ -88,7 +90,7 @@ library UniswapV2OracleLibrary {
                 int256(uint256(reserve0)),
                 int256(uint256(reserve1))
             );
-            price1Cumulative += uint256(ratio1) * uint256(timeElapsed);
+            price1Cumulative += uint256(ratio1) * timeElapsed;
         }
     }
 }
@@ -157,7 +159,10 @@ contract UniswapV2Oracle is IOracle {
             uint32 blockTimestamp
         ) = UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
 
-        uint32 timeElapsed = blockTimestamp - blockTimestampLast; // overflow is desired
+        // overflow is desired
+        uint256 timeElapsed = blockTimestamp > blockTimestampLast
+            ? blockTimestamp - blockTimestampLast
+            : uint256(blockTimestamp) + 2**32 - uint256(blockTimestampLast);
 
         // ensure that at least one full period has passed since the last update
         if (timeElapsed >= PERIOD) {
@@ -165,13 +170,13 @@ contract UniswapV2Oracle is IOracle {
             price0Average = uint256(
                 PRBMathSD59x18.div(
                     int256(price0Cumulative - price0CumulativeLast),
-                    int256(uint256(timeElapsed))
+                    int256(timeElapsed)
                 )
             );
             price1Average = uint256(
                 PRBMathSD59x18.div(
                     int256(price1Cumulative - price1CumulativeLast),
-                    int256(uint256(timeElapsed))
+                    int256(timeElapsed)
                 )
             );
 

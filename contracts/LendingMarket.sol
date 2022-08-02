@@ -2,6 +2,7 @@
 pragma solidity 0.8.9;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
@@ -26,6 +27,14 @@ contract LendingMarket is
 {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
     using SafeERC20 for IAirUSD;
+    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
+
+    /// @notice A struct to represent the rate in numerator/denominator
+    enum CollateralStatus {
+        Invalid,
+        Enabled,
+        Disabled
+    }
 
     /// @notice A struct to represent the rate in numerator/denominator
     struct Rate {
@@ -42,7 +51,7 @@ contract LendingMarket is
 
     /// @notice A struct for collateral settings
     struct CollateralSetting {
-        bool isValid; // if collateral is valid or not
+        CollateralStatus status; // collateral status (invalid, running, stopped)
         Rate creditLimitRate; // collateral borrow limit (e.g. USDs = 80%, BTCs = 70%, AVAXs=70%)
         Rate liqLimitRate; // collateral liquidation threshold rate (greater than credit limit rate)
         uint8 decimals; // collateral token decimals
@@ -97,10 +106,9 @@ contract LendingMarket is
     mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => position
     /// @notice airUSD total borrows per collateral token
     mapping(address => uint256) public totalBorrowsPerCollateral;
-    /// @notice users array per collateral token
-    mapping(address => address[]) internal marketUsers; // collateral token => users array
-    /// @notice market user flag
-    mapping(address => mapping(address => bool)) internal isMarketUser; // user => collateral token => flag
+    /// @notice users per collateral token
+    mapping(address => EnumerableSetUpgradeable.AddressSet)
+        internal marketUsers; // collateral token => users set
 
     /// @notice total borrowed amount accrued so far
     uint256 public totalDebtAmount;
@@ -160,13 +168,13 @@ contract LendingMarket is
     }
 
     /**
-     * @notice add a new collateral token
+     * @notice enable a new collateral token
      * @dev only owner can call this function
      * @param _token collateral token address
      * @param _creditLimitRate borrow limit
      * @param _liqLimitRate liquidation threshold rate
      */
-    function addCollateralToken(
+    function enableCollateralToken(
         address _token,
         Rate memory _creditLimitRate,
         Rate memory _liqLimitRate,
@@ -177,11 +185,14 @@ contract LendingMarket is
         _validateRate(_liqLimitRate);
 
         // check if collateral token already exists
-        require(!collateralSettings[_token].isValid, "collateral token exists");
+        require(
+            collateralSettings[_token].status != CollateralStatus.Enabled,
+            "already enabled collateral token"
+        );
 
         // add a new collateral
         collateralSettings[_token] = CollateralSetting({
-            isValid: true,
+            status: CollateralStatus.Enabled,
             creditLimitRate: _creditLimitRate,
             liqLimitRate: _liqLimitRate,
             decimals: IERC20MetadataUpgradeable(_token).decimals(),
@@ -191,15 +202,48 @@ contract LendingMarket is
     }
 
     /**
-     * @notice remove an existing collateral token
+     * @notice update collateral token settings
+     * @dev only owner can call this function
+     * @param _token collateral token address
+     * @param _creditLimitRate borrow limit
+     * @param _liqLimitRate liquidation threshold rate
+     */
+    function updateCollateralToken(
+        address _token,
+        Rate memory _creditLimitRate,
+        Rate memory _liqLimitRate,
+        uint256 _totalBorrowCap
+    ) external onlyOwner {
+        // validates collateral settings
+        _validateRate(_creditLimitRate);
+        _validateRate(_liqLimitRate);
+
+        require(
+            collateralSettings[_token].status != CollateralStatus.Invalid,
+            "invalid collateral token"
+        );
+
+        // update collateral token settings
+        collateralSettings[_token].creditLimitRate = _creditLimitRate;
+        collateralSettings[_token].liqLimitRate = _liqLimitRate;
+        collateralSettings[_token].totalBorrowCap = _totalBorrowCap;
+    }
+
+    /**
+     * @notice disable an existing collateral token
      * @dev only owner can call this function
      * @param _token collateral token address
      */
-    function removeCollateralToken(address _token) external onlyOwner {
+    function disableCollateralToken(address _token) external onlyOwner {
         // check if collateral token already exists
-        require(collateralSettings[_token].isValid, "invalid collateral token");
+        require(
+            collateralSettings[_token].status == CollateralStatus.Enabled,
+            "not enabled collateral token"
+        );
 
-        // add a new collateral
+        collateralSettings[_token].status = CollateralStatus.Disabled;
+
+        // remove an existing collateral
         uint256 index = 0;
         uint256 length = collateralTokens.length;
         for (; index < length; index++) {
@@ -245,7 +289,10 @@ contract LendingMarket is
         uint256 _amount,
         address _onBehalfOf
     ) external nonReentrant {
-        require(collateralSettings[_token].isValid, "invalid token");
+        require(
+            collateralSettings[_token].status == CollateralStatus.Enabled,
+            "not enabled"
+        );
 
         uint256 shares = sharesFromAmount(_token, _amount);
 
@@ -259,12 +306,6 @@ contract LendingMarket is
         // update a user's collateral position
         userPositions[_onBehalfOf][_token].shares += shares;
         collateralTotalShares[_token] += shares;
-
-        // check if new market user enters
-        if (!isMarketUser[_onBehalfOf][_token]) {
-            isMarketUser[_onBehalfOf][_token] = true;
-            marketUsers[_token].push(_onBehalfOf);
-        }
 
         emit Deposit(_onBehalfOf, _token, _amount, shares);
     }
@@ -280,7 +321,10 @@ contract LendingMarket is
         nonReentrant
     {
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, "invalid token");
+        require(
+            collateralSettings[_token].status == CollateralStatus.Enabled,
+            "not enabled"
+        );
 
         accrue();
 
@@ -326,6 +370,11 @@ contract LendingMarket is
         // increase total borrows of the collateral market
         totalBorrowsPerCollateral[_token] += _airUSDAmount;
 
+        // check if new market user enters
+        if (!marketUsers[_token].contains(msg.sender)) {
+            marketUsers[_token].add(msg.sender);
+        }
+
         emit Borrowed(msg.sender, _airUSDAmount);
     }
 
@@ -337,7 +386,10 @@ contract LendingMarket is
      */
     function withdraw(address _token, uint256 _amount) external nonReentrant {
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, "invalid token");
+        require(
+            collateralSettings[_token].status != CollateralStatus.Invalid,
+            "invalid token"
+        );
 
         accrue();
 
@@ -388,7 +440,10 @@ contract LendingMarket is
         nonReentrant
     {
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, "invalid token");
+        require(
+            collateralSettings[_token].status != CollateralStatus.Invalid,
+            "invalid token"
+        );
 
         accrue();
 
@@ -420,6 +475,13 @@ contract LendingMarket is
         position.debtPrincipal -= paidPrincipal;
         position.debtPortion -= minusPortion;
 
+        if (position.debtPrincipal == 0) {
+            // remove market user
+            if (marketUsers[_token].contains(msg.sender)) {
+                marketUsers[_token].remove(msg.sender);
+            }
+        }
+
         // decrease total borrows of the collateral market (exclude only principls)
         totalBorrowsPerCollateral[_token] -= paidPrincipal;
 
@@ -434,7 +496,10 @@ contract LendingMarket is
         // check if msg.sender is chainlink keeper
         require(addressProvider.isKeeper(msg.sender), "not keeper");
         // check if collateral is valid
-        require(collateralSettings[_token].isValid, "invalid token");
+        require(
+            collateralSettings[_token].status != CollateralStatus.Invalid,
+            "invalid token"
+        );
 
         accrue();
 
@@ -577,7 +642,7 @@ contract LendingMarket is
         override
         returns (uint256)
     {
-        return marketUsers[_token].length;
+        return marketUsers[_token].length();
     }
 
     function getUserAt(address _token, uint256 _index)
@@ -585,7 +650,15 @@ contract LendingMarket is
         view
         returns (address)
     {
-        return marketUsers[_token][_index];
+        return marketUsers[_token].at(_index);
+    }
+
+    function getAllUsers(address _token)
+        external
+        view
+        returns (address[] memory)
+    {
+        return marketUsers[_token].values();
     }
 
     function collateralTotalAmount(address _token)
