@@ -30,7 +30,7 @@ const STETH = "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84";
 const ETH_USDT_LP = "0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852";
 const WETH_PRICE = "2000";
 const STETH_PRICE = "2100";
-const ETH_USDT_LP_PRICE = "20000000";
+const ETH_USDT_LP_PRICE = "200000000";
 const LIDO_ORACLE_ADDRESS = "0x442af784a788a5bd6f42a01ebe9f287a871243fb";
 
 const rebaseLido = async () => {
@@ -125,7 +125,7 @@ describe("LendingMarket", () => {
 
     // grant MINTER_ROLE to deployer for testing purpose
     await airUSD.grantRole(await airUSD.MINTER_ROLE(), deployer.address);
-    await airUSD.mint(deployer.address, parseUnits("100000"));
+    await airUSD.mint(deployer.address, parseUnits("10000000"));
 
     // grant MINTER_ROLE to lending market
     await airUSD.grantRole(await airUSD.MINTER_ROLE(), lendingMarket.address);
@@ -134,6 +134,7 @@ describe("LendingMarket", () => {
     const uniswapV2Router = <IUniswapV2Router>(
       await ethers.getContractAt("IUniswapV2Router", UNISWAP_V2_ROUTER)
     );
+
     weth = <IERC20>(
       await ethers.getContractAt("contracts/interfaces/IERC20.sol:IERC20", WETH)
     );
@@ -149,16 +150,16 @@ describe("LendingMarket", () => {
         ETH_USDT_LP
       )
     );
-    await airUSD.approve(uniswapV2Router.address, parseUnits("100000"));
+    await airUSD.approve(uniswapV2Router.address, parseUnits("10000000"));
     await uniswapV2Router.addLiquidityETH(
       airUSD.address,
-      parseUnits("100000"),
-      parseUnits("100000"),
-      parseUnits("100000").div(WETH_PRICE),
+      parseUnits("10000000"),
+      parseUnits("10000000"),
+      parseUnits("10000000").div(WETH_PRICE),
       deployer.address,
       ethers.constants.MaxUint256,
       {
-        value: parseUnits("100000").div(WETH_PRICE),
+        value: parseUnits("10000000").div(WETH_PRICE),
       }
     );
 
@@ -219,6 +220,8 @@ describe("LendingMarket", () => {
       ETH_USDT_LP,
       ethUsdtOracle.address
     );
+
+    await swapper.updateSlippageLimit(ethers.utils.parseUnits("1", 15)); // increase slippage limit to 0.1% for testing
   });
 
   let snapId: string;
@@ -248,7 +251,7 @@ describe("LendingMarket", () => {
       });
 
       // add collateral support on lending market
-      await lendingMarket.addCollateralToken(
+      await lendingMarket.enableCollateralToken(
         WETH,
         {
           numerator: 70,
@@ -268,7 +271,7 @@ describe("LendingMarket", () => {
         lendingMarket
           .connect(user)
           .deposit(STETH, parseUnits("1"), user.address)
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
       await lendingMarket
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
@@ -289,7 +292,7 @@ describe("LendingMarket", () => {
       const borrowAmount = position.creditLimitUSD;
       await expect(
         lendingMarket.connect(user).borrow(STETH, borrowAmount.add(1))
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
       await expect(
         lendingMarket.connect(user).borrow(WETH, borrowAmount.add(1))
       ).to.revertedWith("insufficient collateral");
@@ -392,7 +395,10 @@ describe("LendingMarket", () => {
 
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [weth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
 
@@ -405,7 +411,10 @@ describe("LendingMarket", () => {
 
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [weth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
 
@@ -413,6 +422,10 @@ describe("LendingMarket", () => {
         stablePool.address
       );
 
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).to.revertedWith("slippage limit");
+      await swapper.updateSlippageLimit(ethers.utils.parseUnits("2", 17)); // increase slippage limit to 20% for testing
       await liquidationBot.connect(bot).performUpkeep(result.performData);
 
       position = await lendingMarket.positionView(user.address, WETH);
@@ -445,7 +458,10 @@ describe("LendingMarket", () => {
 
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [weth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
 
@@ -458,7 +474,10 @@ describe("LendingMarket", () => {
 
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [weth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
 
@@ -470,6 +489,10 @@ describe("LendingMarket", () => {
         liquidationBot.connect(bot).performUpkeep(result.performData)
       ).revertedWith("missing role");
       await airUSD.grantRole(await airUSD.MINTER_ROLE(), stablePool.address);
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).to.revertedWith("slippage limit");
+      await swapper.updateSlippageLimit(ethers.utils.parseUnits("2", 17)); // increase slippage limit to 20% for testing
       await liquidationBot.connect(bot).performUpkeep(result.performData);
 
       position = await lendingMarket.positionView(user.address, WETH);
@@ -497,7 +520,7 @@ describe("LendingMarket", () => {
       const whaleSigner = await ethers.getSigner(whale);
       await steth.connect(whaleSigner).transfer(user.address, parseUnits("10"));
       // add collateral support on lending market
-      await lendingMarket.addCollateralToken(
+      await lendingMarket.enableCollateralToken(
         STETH,
         {
           numerator: 70,
@@ -515,7 +538,7 @@ describe("LendingMarket", () => {
       await steth.connect(user).approve(lendingMarket.address, parseUnits("1"));
       await expect(
         lendingMarket.connect(user).deposit(WETH, parseUnits("1"), user.address)
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
       await lendingMarket
         .connect(user)
         .deposit(STETH, parseUnits("1"), user.address);
@@ -536,7 +559,7 @@ describe("LendingMarket", () => {
       const borrowAmount = position.creditLimitUSD;
       await expect(
         lendingMarket.connect(user).borrow(WETH, borrowAmount.add(1))
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
       await expect(
         lendingMarket.connect(user).borrow(STETH, borrowAmount.add(1))
       ).to.revertedWith("insufficient collateral");
@@ -649,7 +672,10 @@ describe("LendingMarket", () => {
       expect(position.liquidatable).to.equal(false);
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [steth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [steth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
       // 10% steth price dump
@@ -659,12 +685,19 @@ describe("LendingMarket", () => {
       expect(await lendingMarket.liquidatable(user.address, STETH)).to.be.true;
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [steth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [steth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
       const stablePoolBalanceBefore = await airUSD.balanceOf(
         stablePool.address
       );
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).to.revertedWith("slippage limit");
+      await swapper.updateSlippageLimit(ethers.utils.parseUnits("2", 17)); // increase slippage limit to 20% for testing
       await liquidationBot.connect(bot).performUpkeep(result.performData);
       position = await lendingMarket.positionView(user.address, STETH);
       expect(position.amount).to.equal(0);
@@ -690,7 +723,10 @@ describe("LendingMarket", () => {
       expect(position.liquidatable).to.equal(false);
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [steth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [steth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
       // 10% steth price dump
@@ -700,7 +736,10 @@ describe("LendingMarket", () => {
       expect(await lendingMarket.liquidatable(user.address, STETH)).to.be.true;
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [steth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [steth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
       const stablePoolBalanceBefore = await airUSD.balanceOf(
@@ -711,6 +750,10 @@ describe("LendingMarket", () => {
         liquidationBot.connect(bot).performUpkeep(result.performData)
       ).revertedWith("missing role");
       await airUSD.grantRole(await airUSD.MINTER_ROLE(), stablePool.address);
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).to.revertedWith("slippage limit");
+      await swapper.updateSlippageLimit(ethers.utils.parseUnits("2", 17)); // increase slippage limit to 20% for testing
       await liquidationBot.connect(bot).performUpkeep(result.performData);
 
       position = await lendingMarket.positionView(user.address, STETH);
@@ -738,7 +781,7 @@ describe("LendingMarket", () => {
         .connect(whaleSigner)
         .transfer(user.address, parseUnits("0.01"));
       // add collateral support on lending market
-      await lendingMarket.addCollateralToken(
+      await lendingMarket.enableCollateralToken(
         ETH_USDT_LP,
         {
           numerator: 70,
@@ -760,7 +803,7 @@ describe("LendingMarket", () => {
         lendingMarket
           .connect(user)
           .deposit(WETH, parseUnits("0.001"), user.address)
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
       await lendingMarket
         .connect(user)
         .deposit(ETH_USDT_LP, parseUnits("0.001"), user.address);
@@ -788,7 +831,7 @@ describe("LendingMarket", () => {
       const borrowAmount = position.creditLimitUSD;
       await expect(
         lendingMarket.connect(user).borrow(WETH, borrowAmount.add(1))
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
       await expect(
         lendingMarket.connect(user).borrow(ETH_USDT_LP, borrowAmount.add(1))
       ).to.revertedWith("insufficient collateral");
@@ -896,7 +939,10 @@ describe("LendingMarket", () => {
       expect(position.liquidatable).to.equal(false);
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [ethUsdtLp.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [ethUsdtLp.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
       // 10% eth-usdt price dump
@@ -907,12 +953,19 @@ describe("LendingMarket", () => {
         .true;
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [ethUsdtLp.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [ethUsdtLp.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
       const stablePoolBalanceBefore = await airUSD.balanceOf(
         stablePool.address
       );
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).to.revertedWith("slippage limit");
+      await swapper.updateSlippageLimit(ethers.utils.parseUnits("2", 17)); // increase slippage limit to 20% for testing
       await liquidationBot.connect(bot).performUpkeep(result.performData);
       position = await lendingMarket.positionView(user.address, ETH_USDT_LP);
       expect(position.amount).to.equal(0);
@@ -943,7 +996,10 @@ describe("LendingMarket", () => {
       expect(position.liquidatable).to.equal(false);
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [ethUsdtLp.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [ethUsdtLp.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
       // 10% eth-usdt price dump
@@ -954,7 +1010,10 @@ describe("LendingMarket", () => {
         .true;
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [ethUsdtLp.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [ethUsdtLp.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
       const stablePoolBalanceBefore = await airUSD.balanceOf(
@@ -965,6 +1024,10 @@ describe("LendingMarket", () => {
         liquidationBot.connect(bot).performUpkeep(result.performData)
       ).revertedWith("missing role");
       await airUSD.grantRole(await airUSD.MINTER_ROLE(), stablePool.address);
+      await expect(
+        liquidationBot.connect(bot).performUpkeep(result.performData)
+      ).to.revertedWith("slippage limit");
+      await swapper.updateSlippageLimit(ethers.utils.parseUnits("2", 17)); // increase slippage limit to 20% for testing
       await liquidationBot.connect(bot).performUpkeep(result.performData);
 
       position = await lendingMarket.positionView(user.address, ETH_USDT_LP);

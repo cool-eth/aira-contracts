@@ -2,18 +2,44 @@
 pragma solidity 0.8.9;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./interfaces/ISwapper.sol";
 import "./interfaces/ISwapperImpl.sol";
+import "./interfaces/IPriceOracleAggregator.sol";
+import "./interfaces/ILendingAddressRegistry.sol";
 
 contract Swapper is ISwapper, Ownable {
-    using SafeERC20 for IERC20;
+    using SafeERC20 for IERC20Metadata;
 
+    ILendingAddressRegistry public addressProvider;
+    uint256 public slippageLimitNumerator;
+    uint256 public slippageLimitDenominator;
     mapping(address => mapping(address => address)) public swapperImpls;
 
-    constructor() Ownable() {}
+    constructor(address _addressProvider, uint256 _slippageLimitNumerator)
+        Ownable()
+    {
+        addressProvider = ILendingAddressRegistry(_addressProvider);
+        slippageLimitNumerator = _slippageLimitNumerator;
+        slippageLimitDenominator = 10**18;
+    }
+
+    function updateAddressProvider(address _addressProvider)
+        external
+        onlyOwner
+    {
+        require(_addressProvider != address(0), "invalid address provider");
+        addressProvider = ILendingAddressRegistry(_addressProvider);
+    }
+
+    function updateSlippageLimit(uint256 _slippageLimitNumerator)
+        external
+        onlyOwner
+    {
+        slippageLimitNumerator = _slippageLimitNumerator;
+    }
 
     function addSwapperImpl(
         address _tokenIn,
@@ -29,6 +55,18 @@ contract Swapper is ISwapper, Ownable {
         swapperImpls[_tokenIn][_tokenOut] = _swapperImpl;
     }
 
+    function removeSwapperImpl(address _tokenIn, address _tokenOut)
+        external
+        onlyOwner
+    {
+        require(
+            swapperImpls[_tokenIn][_tokenOut] != address(0),
+            "swapper implementation not found"
+        );
+
+        swapperImpls[_tokenIn][_tokenOut] = address(0);
+    }
+
     function swap(
         address _tokenIn,
         address _tokenOut,
@@ -38,9 +76,36 @@ contract Swapper is ISwapper, Ownable {
         address swapperImpl = swapperImpls[_tokenIn][_tokenOut];
         require(swapperImpl != address(0), "swapper implementation not found");
 
-        IERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
-        IERC20(_tokenIn).safeApprove(swapperImpl, _amountIn);
+        IERC20Metadata(_tokenIn).safeTransferFrom(
+            msg.sender,
+            address(this),
+            _amountIn
+        );
+        IERC20Metadata(_tokenIn).safeApprove(swapperImpl, _amountIn);
 
-        return ISwapperImpl(swapperImpl).swap(_amountIn, _to);
+        amountOut = ISwapperImpl(swapperImpl).swap(_amountIn, _to);
+
+        // check slippage limit
+        IPriceOracleAggregator aggregator = IPriceOracleAggregator(
+            addressProvider.getPriceOracleAggregator()
+        );
+        uint256 assetValueIn = (_amountIn *
+            aggregator.viewPriceInUSD(_tokenIn)) /
+            (10**IERC20Metadata(_tokenIn).decimals());
+        uint256 assetValueOut = (amountOut *
+            aggregator.viewPriceInUSD(_tokenOut)) /
+            (10**IERC20Metadata(_tokenOut).decimals());
+
+        require(
+            assetValueIn >=
+                (assetValueOut *
+                    (slippageLimitDenominator - slippageLimitNumerator)) /
+                    slippageLimitDenominator &&
+                assetValueIn <=
+                (assetValueOut *
+                    (slippageLimitDenominator + slippageLimitNumerator)) /
+                    slippageLimitDenominator,
+            "slippage limit"
+        );
     }
 }

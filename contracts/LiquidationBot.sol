@@ -35,7 +35,10 @@ contract LiquidationBot is KeeperCompatible {
         override
         returns (bool upkeepNeeded, bytes memory performData)
     {
-        address token = abi.decode(checkData, (address));
+        (address token, uint256 indexFrom, uint256 indexTo) = abi.decode(
+            checkData,
+            (address, uint256, uint256)
+        );
 
         address[] memory liquidatableUsers = new address[](
             MAX_LIQUIDATION_COUNT
@@ -47,7 +50,11 @@ contract LiquidationBot is KeeperCompatible {
         );
 
         uint256 userCount = lendingMarket.getUserCount(token);
-        for (uint256 i = 0; i < userCount; i++) {
+        if (indexTo > userCount) {
+            indexTo = userCount;
+        }
+
+        for (uint256 i = indexFrom; i < indexTo; i++) {
             address user = lendingMarket.getUserAt(token, i);
             if (lendingMarket.liquidatable(user, token)) {
                 liquidatableUsers[idx++] = user;

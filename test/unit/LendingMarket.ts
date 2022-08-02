@@ -125,7 +125,7 @@ describe("LendingMarket", () => {
     });
 
     // add collateral support on lending market
-    await lendingMarket.addCollateralToken(
+    await lendingMarket.enableCollateralToken(
       WETH,
       {
         numerator: 70,
@@ -173,10 +173,10 @@ describe("LendingMarket", () => {
     });
   });
 
-  describe("addCollateralToken", () => {
+  describe("enableCollateralToken", () => {
     it("Revert: caller is not the owner", async () => {
       await expect(
-        lendingMarket.connect(user).addCollateralToken(
+        lendingMarket.connect(user).enableCollateralToken(
           STETH,
           {
             numerator: 70,
@@ -193,7 +193,7 @@ describe("LendingMarket", () => {
 
     it("Revert: invalid credit limit rate", async () => {
       await expect(
-        lendingMarket.addCollateralToken(
+        lendingMarket.enableCollateralToken(
           STETH,
           {
             numerator: 101,
@@ -210,7 +210,7 @@ describe("LendingMarket", () => {
 
     it("Revert: invalid liquidation limit rate", async () => {
       await expect(
-        lendingMarket.addCollateralToken(
+        lendingMarket.enableCollateralToken(
           STETH,
           {
             numerator: 70,
@@ -225,9 +225,9 @@ describe("LendingMarket", () => {
       ).to.revertedWith("invalid rate");
     });
 
-    it("Revert: collateral token exists", async () => {
+    it("Revert: already enabled collateral token", async () => {
       await expect(
-        lendingMarket.addCollateralToken(
+        lendingMarket.enableCollateralToken(
           WETH,
           {
             numerator: 70,
@@ -239,11 +239,11 @@ describe("LendingMarket", () => {
           }, // 75%
           parseUnits("2000")
         )
-      ).to.revertedWith("collateral token exists");
+      ).to.revertedWith("already enabled collateral token");
     });
 
     it("Success", async () => {
-      await lendingMarket.addCollateralToken(
+      await lendingMarket.enableCollateralToken(
         STETH,
         {
           numerator: 70,
@@ -257,7 +257,7 @@ describe("LendingMarket", () => {
       );
 
       const setting = await lendingMarket.collateralSettings(STETH);
-      expect(setting.isValid).to.equal(true);
+      expect(setting.status).to.equal(1);
       expect(setting.creditLimitRate.numerator).to.equal(70);
       expect(setting.creditLimitRate.denominator).to.equal(100);
       expect(setting.decimals).to.equal(18);
@@ -265,21 +265,21 @@ describe("LendingMarket", () => {
     });
   });
 
-  describe("removeCollateralToken", () => {
+  describe("disableCollateralToken", () => {
     it("Revert: caller is not the owner", async () => {
       await expect(
-        lendingMarket.connect(user).removeCollateralToken(STETH)
+        lendingMarket.connect(user).disableCollateralToken(STETH)
       ).to.revertedWith("Ownable: caller is not the owner");
     });
 
-    it("Revert: invalid collateral token", async () => {
-      await expect(lendingMarket.removeCollateralToken(STETH)).to.revertedWith(
-        "invalid collateral token"
+    it("Revert: not enabled collateral token", async () => {
+      await expect(lendingMarket.disableCollateralToken(STETH)).to.revertedWith(
+        "not enabled collateral token"
       );
     });
 
     it("Success", async () => {
-      await lendingMarket.addCollateralToken(
+      await lendingMarket.enableCollateralToken(
         STETH,
         {
           numerator: 70,
@@ -294,10 +294,10 @@ describe("LendingMarket", () => {
 
       expect((await lendingMarket.allCollateralTokens()).length).to.equal(2);
 
-      await lendingMarket.removeCollateralToken(STETH);
+      await lendingMarket.disableCollateralToken(STETH);
 
       const setting = await lendingMarket.collateralSettings(STETH);
-      expect(setting.isValid).to.equal(true);
+      expect(setting.status).to.equal(2);
       expect(setting.creditLimitRate.numerator).to.equal(70);
       expect(setting.creditLimitRate.denominator).to.equal(100);
       expect(setting.decimals).to.equal(18);
@@ -306,13 +306,13 @@ describe("LendingMarket", () => {
   });
 
   describe("deposit", () => {
-    it("Revert: invalid token", async () => {
+    it("Revert: not enabled", async () => {
       await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
       await expect(
         lendingMarket
           .connect(user)
           .deposit(STETH, parseUnits("1"), user.address)
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
     });
 
     it("Success", async () => {
@@ -335,10 +335,10 @@ describe("LendingMarket", () => {
         .deposit(WETH, parseUnits("1"), user.address);
     });
 
-    it("Revert: invalid token", async () => {
+    it("Revert: not enabled", async () => {
       await expect(
         lendingMarket.connect(user).borrow(STETH, 0)
-      ).to.revertedWith("invalid token");
+      ).to.revertedWith("not enabled");
     });
 
     it("Revert: insufficient collateral", async () => {
@@ -524,7 +524,10 @@ describe("LendingMarket", () => {
 
       // check liquidatable from liquidation bot
       let result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [weth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.false;
 
@@ -537,7 +540,10 @@ describe("LendingMarket", () => {
 
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
-        ethers.utils.defaultAbiCoder.encode(["address"], [weth.address])
+        ethers.utils.defaultAbiCoder.encode(
+          ["address", "uint256", "uint256"],
+          [weth.address, 0, 100]
+        )
       );
       expect(result.upkeepNeeded).to.true;
 
