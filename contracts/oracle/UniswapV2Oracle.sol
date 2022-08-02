@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.9;
 
-import "../math/PRBMathSD59x18.sol";
-import "../../interfaces/IPriceOracleAggregator.sol";
-import "../../interfaces/IUniswapV2Pair.sol";
+import "../lib/math/PRBMathSD59x18.sol";
+import "../interfaces/IPriceOracleAggregator.sol";
+import "../external/uniswapV2/IUniswapV2Pair.sol";
 
 library UniswapV2Library {
     // returns sorted token addresses, used to handle return values from pairs sorted in this order

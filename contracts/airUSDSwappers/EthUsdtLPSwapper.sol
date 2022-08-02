@@ -5,9 +5,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "../interfaces/IUniswapV2Router.sol";
 import "../interfaces/ISwapperImpl.sol";
-import "../interfaces/ICurvePool.sol";
+import "../external/curve/ICurvePool.sol";
+import "../external/uniswapV2/IUniswapV2Router.sol";
 
 contract EthUsdtLPSwapper is ISwapperImpl {
     using SafeERC20 for IERC20;
