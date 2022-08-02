@@ -39,7 +39,7 @@ const rebaseLido = async () => {
     await ethers.getContractAt("ILidoOracle", LIDO_ORACLE_ADDRESS)
   );
   const steth = <IERC20>(
-    await ethers.getContractAt("contracts/interfaces/IERC20.sol:IERC20", STETH)
+    await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", STETH)
   );
 
   console.log(
@@ -135,17 +135,17 @@ describe("LendingMarket", () => {
       await ethers.getContractAt("IUniswapV2Router", UNISWAP_V2_ROUTER)
     );
     weth = <IERC20>(
-      await ethers.getContractAt("contracts/interfaces/IERC20.sol:IERC20", WETH)
+      await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", WETH)
     );
     steth = <IERC20>(
       await ethers.getContractAt(
-        "contracts/interfaces/IERC20.sol:IERC20",
+        "contracts/external/IERC20.sol:IERC20",
         STETH
       )
     );
     ethUsdtLp = <IERC20>(
       await ethers.getContractAt(
-        "contracts/interfaces/IERC20.sol:IERC20",
+        "contracts/external/IERC20.sol:IERC20",
         ETH_USDT_LP
       )
     );

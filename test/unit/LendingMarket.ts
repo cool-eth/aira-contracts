@@ -72,7 +72,7 @@ describe("LendingMarket", () => {
     await airUSD.grantRole(await airUSD.MINTER_ROLE(), lendingMarket.address);
 
     weth = <IERC20>(
-      await ethers.getContractAt("contracts/interfaces/IERC20.sol:IERC20", WETH)
+      await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", WETH)
     );
 
     // weth swapper impl
