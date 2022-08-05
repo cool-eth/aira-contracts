@@ -543,7 +543,7 @@ describe("LendingMarket", () => {
         .connect(user)
         .deposit(STETH, parseUnits("1"), user.address);
       const position = await lendingMarket.positionView(user.address, STETH);
-      expect(position.amount).to.closeTo(parseUnits("1"), 1);
+      expect(position.amount).to.closeTo(parseUnits("1"), 2);
       expect(position.amountUSD).to.closeTo(
         parseUnits("1").mul(STETH_PRICE),
         3000
@@ -626,7 +626,7 @@ describe("LendingMarket", () => {
       ).to.revertedWith("insufficient collateral");
       await lendingMarket.connect(user).withdraw(STETH, parseUnits("0.5"));
       position = await lendingMarket.positionView(user.address, STETH);
-      expect(position.amount).to.closeTo(parseUnits("0.5"), 1);
+      expect(position.amount).to.closeTo(parseUnits("0.5"), 2);
     });
 
     it("should be able to withdraw (will get more than deposit if rebase happens)", async () => {
@@ -640,7 +640,7 @@ describe("LendingMarket", () => {
         "collateral amount before rebase = ",
         position.amount.toString()
       );
-      expect(position.amount).to.closeTo(parseUnits("1"), 1);
+      expect(position.amount).to.closeTo(parseUnits("1"), 2);
 
       await rebaseLido();
 
