@@ -578,6 +578,10 @@ contract LendingMarket is
         position.debtPortion = 0;
         position.debtPrincipal = 0;
 
+        if (marketUsers[_token].contains(_user)) {
+            marketUsers[_token].remove(_user);
+        }
+
         emit Liquidate(_user, _token, debtAmount, msg.sender);
     }
 
