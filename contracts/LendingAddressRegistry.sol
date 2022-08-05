@@ -3,13 +3,13 @@ pragma solidity 0.8.9;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
-import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import "./interfaces/ILendingAddressRegistry.sol";
 
 contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     using Counters for Counters.Counter;
-    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @notice lending contract
     bytes32 public constant LENDING_MARKET = "LENDING_MARKET";
@@ -25,7 +25,7 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     bytes32 public constant SWAPPER = "SWAPPER";
 
     mapping(bytes32 => address) private _addresses;
-    EnumerableSetUpgradeable.AddressSet private _keepers;
+    EnumerableSet.AddressSet private _keepers;
 
     constructor() Ownable() {}
 
