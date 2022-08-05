@@ -39,6 +39,8 @@ interface ILendingAddressRegistry {
 
     function addKeeper(address keeper) external;
 
+    function removeKeeper(address keeper) external;
+
     function isKeeper(address keeper) external view returns (bool);
 
     function getAddress(bytes32 id) external view returns (address);

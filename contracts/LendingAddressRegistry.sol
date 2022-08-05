@@ -3,11 +3,13 @@ pragma solidity 0.8.9;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 
 import "./interfaces/ILendingAddressRegistry.sol";
 
 contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     using Counters for Counters.Counter;
+    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.AddressSet;
 
     /// @notice lending contract
     bytes32 public constant LENDING_MARKET = "LENDING_MARKET";
@@ -23,10 +25,7 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     bytes32 public constant SWAPPER = "SWAPPER";
 
     mapping(bytes32 => address) private _addresses;
-
-    Counters.Counter private _keeperIndexTracker;
-    mapping(uint256 => address) private _keepers;
-    mapping(address => bool) private _isKeeper;
+    EnumerableSetUpgradeable.AddressSet private _keepers;
 
     constructor() Ownable() {}
 
@@ -103,25 +102,21 @@ contract LendingAddressRegistry is Ownable, ILendingAddressRegistry {
     }
 
     function getKeepers() external view override returns (address[] memory) {
-        uint256 length = _keeperIndexTracker.current();
-        address[] memory keepers = new address[](length);
-
-        for (uint256 i = 0; i < length; i++) {
-            keepers[i] = _keepers[i];
-        }
-
-        return keepers;
+        return _keepers.values();
     }
 
     function addKeeper(address keeper) external override onlyOwner {
-        require(!isKeeper(keeper), "already exists");
-        _keepers[_keeperIndexTracker.current()] = keeper;
-        _keeperIndexTracker.increment();
-        _isKeeper[keeper] = true;
+        require(!_keepers.contains(keeper), "already exists");
+        _keepers.add(keeper);
+    }
+
+    function removeKeeper(address keeper) external override onlyOwner {
+        require(_keepers.contains(keeper), "not exists");
+        _keepers.remove(keeper);
     }
 
     function isKeeper(address keeper) public view override returns (bool) {
-        return _isKeeper[keeper];
+        return _keepers.contains(keeper);
     }
 
     function getAddress(bytes32 id) external view override returns (address) {
