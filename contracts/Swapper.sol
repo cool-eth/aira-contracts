@@ -78,10 +78,9 @@ contract Swapper is ISwapper, Ownable {
 
         IERC20Metadata(_tokenIn).safeTransferFrom(
             msg.sender,
-            address(this),
+            swapperImpl,
             _amountIn
         );
-        IERC20Metadata(_tokenIn).safeApprove(swapperImpl, _amountIn);
 
         amountOut = ISwapperImpl(swapperImpl).swap(_amountIn, _to);
 

@@ -42,7 +42,6 @@ contract VelodromeSwapper is ISwapperImpl {
         override
         returns (uint256 amountOut)
     {
-        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
         IERC20(tokenIn).safeApprove(velodromeRouter, _amountIn);
 
         uint256[] memory amountsOut = IVelodromeRouter(velodromeRouter)

@@ -45,8 +45,6 @@ contract VelodromeLPSwapper is ISwapperImpl {
         override
         returns (uint256 amountOut)
     {
-        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
-
         IVelodromeRouter(velodromeRouter).removeLiquidity(
             token0,
             token1,

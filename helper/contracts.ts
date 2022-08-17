@@ -91,12 +91,14 @@ export const deployStethAirUSDSwapper = async (
 }
 
 export const deployUniswapV2Swapper = async (
+  swapper: any,
   uniswapV2Router: any,
   tokenIn: any,
   tokenOut: any,
   path: any
 ) => {
   return await deployContract<UniswapV2Swapper>('UniswapV2Swapper', [
+    swapper,
     uniswapV2Router,
     tokenIn,
     tokenOut,
