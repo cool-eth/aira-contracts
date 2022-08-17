@@ -15,6 +15,14 @@ const deploySwapper: DeployFunction = async (
     await ethers.getContract("LendingAddressRegistry")
   );
 
+  await deploy("Swapper", {
+    from: deployer.address,
+    args: [lendingAddressRegistry.address, ethers.utils.parseUnits("5", 16)], // 5% slippage limit
+    log: true,
+  });
+
+  const swapper = <Swapper>await ethers.getContract("Swapper");
+
   let weth = "";
   if (network.name == "mainnet") {
     weth = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -38,6 +46,7 @@ const deploySwapper: DeployFunction = async (
     await deploy("UniswapV2Swapper", {
       from: deployer.address,
       args: [
+        swapper.address,
         "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", // router
         weth, // tokenIn
         airUSD.address, // tokenOut
@@ -47,13 +56,6 @@ const deploySwapper: DeployFunction = async (
     })
   ).address;
 
-  await deploy("Swapper", {
-    from: deployer.address,
-    args: [lendingAddressRegistry.address, ethers.utils.parseUnits("5", 16)], // 5% slippage limit
-    log: true,
-  });
-
-  const swapper = <Swapper>await ethers.getContract("Swapper");
   await (
     await swapper.addSwapperImpl(
       weth, // tokenIn

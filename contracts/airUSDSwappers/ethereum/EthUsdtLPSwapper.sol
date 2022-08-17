@@ -37,11 +37,6 @@ contract EthUsdtLPSwapper is ISwapperImpl {
         override
         returns (uint256 amountOut)
     {
-        IERC20(ethUsdtLP).safeTransferFrom(
-            msg.sender,
-            address(this),
-            _amountIn
-        );
         IERC20(ethUsdtLP).safeApprove(uniswapV2Router, _amountIn);
 
         // remove liquidity -> weth/usdt

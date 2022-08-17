@@ -14,7 +14,8 @@ import {
   IERC20,
   IUniswapV2Router,
   LendingAddressRegistry,
-  LendingMarket,
+  LendingMarketV2,
+  LendingVaultERC20,
   LiquidationBot,
   MockChainlinkUSDAdapter,
   PriceOracleAggregator,
@@ -28,7 +29,7 @@ const STETH = "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84";
 const ETH_USDT_LP = "0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852";
 const WETH_PRICE = "2000";
 
-describe("LendingMarket", () => {
+describe("LendingMarketV2", () => {
   let deployer: SignerWithAddress,
     user: SignerWithAddress,
     bot: SignerWithAddress,
@@ -38,7 +39,8 @@ describe("LendingMarket", () => {
   let lendingAddressRegistry: LendingAddressRegistry;
   let liquidationBot: LiquidationBot;
   let stablePool: StablePool;
-  let lendingMarket: LendingMarket;
+  let lendingMarketV2: LendingMarketV2;
+  let lendingVault: LendingVaultERC20;
   let swapper: Swapper;
   let priceOracleAggregator: PriceOracleAggregator;
   let wethOracle: MockChainlinkUSDAdapter;
@@ -53,13 +55,71 @@ describe("LendingMarket", () => {
     lendingAddressRegistry = await ethers.getContract("LendingAddressRegistry");
     liquidationBot = await ethers.getContract("LiquidationBot");
     stablePool = await ethers.getContract("StablePool");
-    lendingMarket = await ethers.getContract("LendingMarket");
     swapper = await ethers.getContract("Swapper");
     priceOracleAggregator = await ethers.getContract("PriceOracleAggregator");
+
+    // deploy lending market v2
+    const lendingMarketAddress = (
+      await deployments.deploy("LendingMarketV2", {
+        from: deployer.address,
+        args: [],
+        log: true,
+        proxy: {
+          proxyContract: "OpenZeppelinTransparentProxy",
+          execute: {
+            methodName: "initialize",
+            args: [
+              lendingAddressRegistry.address,
+              airUSD.address,
+              {
+                interestApr: {
+                  numerator: "10",
+                  denominator: "1000",
+                }, // 1% interest APR
+                orgFeeRate: {
+                  numerator: "3",
+                  denominator: "1000",
+                }, // 0.3% org fee rate
+                liquidationPenalty: {
+                  numerator: "50",
+                  denominator: "1000",
+                }, // 5% liquidation penalty
+              },
+            ],
+          },
+        },
+      })
+    ).address;
+    lendingMarketV2 = await ethers.getContractAt(
+      "LendingMarketV2",
+      lendingMarketAddress
+    );
+
+    // deploy lending vault
+    const lendingVaultAddress = (
+      await deployments.deploy("LendingVaultERC20", {
+        from: deployer.address,
+        args: [],
+        log: true,
+        proxy: {
+          proxyContract: "OpenZeppelinTransparentProxy",
+          execute: {
+            methodName: "initialize",
+            args: [lendingAddressRegistry.address, WETH],
+          },
+        },
+      })
+    ).address;
+
+    lendingVault = await ethers.getContractAt(
+      "LendingVaultERC20",
+      lendingVaultAddress
+    );
 
     // set treasury and staking address
     await lendingAddressRegistry.setTreasury(treasury.address);
     await lendingAddressRegistry.setStaking(staking.address);
+    await lendingAddressRegistry.setLendingMarket(lendingMarketV2.address);
 
     // set keeper for liquidation bot
     await lendingAddressRegistry.addKeeper(liquidationBot.address);
@@ -69,7 +129,7 @@ describe("LendingMarket", () => {
     await airUSD.mint(deployer.address, parseUnits("10000"));
 
     // grant MINTER_ROLE to lending market
-    await airUSD.grantRole(await airUSD.MINTER_ROLE(), lendingMarket.address);
+    await airUSD.grantRole(await airUSD.MINTER_ROLE(), lendingMarketV2.address);
 
     weth = <IERC20>(
       await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", WETH)
@@ -126,8 +186,9 @@ describe("LendingMarket", () => {
     });
 
     // add collateral support on lending market
-    await lendingMarket.enableCollateralToken(
+    await lendingMarketV2.enableCollateralToken(
       WETH,
+      lendingVault.address,
       {
         numerator: 70,
         denominator: 100,
@@ -160,15 +221,15 @@ describe("LendingMarket", () => {
   describe("setAddressProvider", () => {
     it("Revert: caller is not the owner", async () => {
       await expect(
-        lendingMarket
+        lendingMarketV2
           .connect(user)
           .setAddressProvider(lendingAddressRegistry.address)
       ).to.revertedWith("Ownable: caller is not the owner");
     });
 
     it("Success", async () => {
-      await lendingMarket.setAddressProvider(lendingAddressRegistry.address);
-      expect(await lendingMarket.addressProvider()).to.equal(
+      await lendingMarketV2.setAddressProvider(lendingAddressRegistry.address);
+      expect(await lendingMarketV2.addressProvider()).to.equal(
         lendingAddressRegistry.address
       );
     });
@@ -177,8 +238,9 @@ describe("LendingMarket", () => {
   describe("enableCollateralToken", () => {
     it("Revert: caller is not the owner", async () => {
       await expect(
-        lendingMarket.connect(user).enableCollateralToken(
+        lendingMarketV2.connect(user).enableCollateralToken(
           STETH,
+          lendingVault.address,
           {
             numerator: 70,
             denominator: 100,
@@ -194,8 +256,9 @@ describe("LendingMarket", () => {
 
     it("Revert: invalid credit limit rate", async () => {
       await expect(
-        lendingMarket.enableCollateralToken(
+        lendingMarketV2.enableCollateralToken(
           STETH,
+          lendingVault.address,
           {
             numerator: 101,
             denominator: 100,
@@ -211,8 +274,9 @@ describe("LendingMarket", () => {
 
     it("Revert: invalid liquidation limit rate", async () => {
       await expect(
-        lendingMarket.enableCollateralToken(
+        lendingMarketV2.enableCollateralToken(
           STETH,
+          lendingVault.address,
           {
             numerator: 70,
             denominator: 100,
@@ -228,8 +292,9 @@ describe("LendingMarket", () => {
 
     it("Revert: already enabled collateral token", async () => {
       await expect(
-        lendingMarket.enableCollateralToken(
+        lendingMarketV2.enableCollateralToken(
           WETH,
+          lendingVault.address,
           {
             numerator: 70,
             denominator: 100,
@@ -244,8 +309,9 @@ describe("LendingMarket", () => {
     });
 
     it("Success", async () => {
-      await lendingMarket.enableCollateralToken(
+      await lendingMarketV2.enableCollateralToken(
         STETH,
+        lendingVault.address,
         {
           numerator: 70,
           denominator: 100,
@@ -257,7 +323,7 @@ describe("LendingMarket", () => {
         parseUnits("2000")
       );
 
-      const setting = await lendingMarket.collateralSettings(STETH);
+      const setting = await lendingMarketV2.collateralSettings(STETH);
       expect(setting.status).to.equal(1);
       expect(setting.creditLimitRate.numerator).to.equal(70);
       expect(setting.creditLimitRate.denominator).to.equal(100);
@@ -269,19 +335,20 @@ describe("LendingMarket", () => {
   describe("disableCollateralToken", () => {
     it("Revert: caller is not the owner", async () => {
       await expect(
-        lendingMarket.connect(user).disableCollateralToken(STETH)
+        lendingMarketV2.connect(user).disableCollateralToken(STETH)
       ).to.revertedWith("Ownable: caller is not the owner");
     });
 
     it("Revert: not enabled collateral token", async () => {
-      await expect(lendingMarket.disableCollateralToken(STETH)).to.revertedWith(
-        "not enabled collateral token"
-      );
+      await expect(
+        lendingMarketV2.disableCollateralToken(STETH)
+      ).to.revertedWith("not enabled collateral token");
     });
 
     it("Success", async () => {
-      await lendingMarket.enableCollateralToken(
+      await lendingMarketV2.enableCollateralToken(
         STETH,
+        lendingVault.address,
         {
           numerator: 70,
           denominator: 100,
@@ -293,11 +360,11 @@ describe("LendingMarket", () => {
         parseUnits("2000")
       );
 
-      expect((await lendingMarket.allCollateralTokens()).length).to.equal(2);
+      expect((await lendingMarketV2.allCollateralTokens()).length).to.equal(2);
 
-      await lendingMarket.disableCollateralToken(STETH);
+      await lendingMarketV2.disableCollateralToken(STETH);
 
-      const setting = await lendingMarket.collateralSettings(STETH);
+      const setting = await lendingMarketV2.collateralSettings(STETH);
       expect(setting.status).to.equal(2);
       expect(setting.creditLimitRate.numerator).to.equal(70);
       expect(setting.creditLimitRate.denominator).to.equal(100);
@@ -308,21 +375,25 @@ describe("LendingMarket", () => {
 
   describe("deposit", () => {
     it("Revert: not enabled", async () => {
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
       await expect(
-        lendingMarket
+        lendingMarketV2
           .connect(user)
           .deposit(STETH, parseUnits("1"), user.address)
       ).to.revertedWith("not enabled");
     });
 
     it("Success", async () => {
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
 
-      const position = await lendingMarket.positionView(user.address, WETH);
+      const position = await lendingMarketV2.positionView(user.address, WETH);
       expect(position.amount).to.equal(parseUnits("1"));
       expect(position.amountUSD).to.equal(parseUnits("1").mul(WETH_PRICE));
     });
@@ -330,60 +401,64 @@ describe("LendingMarket", () => {
 
   describe("borrow", () => {
     beforeEach(async () => {
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
     });
 
     it("Revert: not enabled", async () => {
       await expect(
-        lendingMarket.connect(user).borrow(STETH, 0)
+        lendingMarketV2.connect(user).borrow(STETH, 0)
       ).to.revertedWith("not enabled");
     });
 
     it("Revert: insufficient collateral", async () => {
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD;
       await expect(
-        lendingMarket.connect(user).borrow(WETH, borrowAmount.add(1))
+        lendingMarketV2.connect(user).borrow(WETH, borrowAmount.add(1))
       ).to.revertedWith("insufficient collateral");
     });
 
     it("Revert: borrow cap reached", async () => {
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("3"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("3"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("3"), user.address);
 
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD;
       await expect(
-        lendingMarket.connect(user).borrow(WETH, borrowAmount)
+        lendingMarketV2.connect(user).borrow(WETH, borrowAmount)
       ).to.revertedWith("borrow cap reached");
     });
 
     it("Success: borrow once", async () => {
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD;
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
 
-      position = await lendingMarket.positionView(user.address, WETH);
+      position = await lendingMarketV2.positionView(user.address, WETH);
       expect(position.debtPrincipal).to.equal(borrowAmount);
       expect(position.liquidatable).to.equal(false);
     });
 
     it("Success: borrow twice", async () => {
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD.div(3);
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
 
-      position = await lendingMarket.positionView(user.address, WETH);
+      position = await lendingMarketV2.positionView(user.address, WETH);
       expect(position.debtPrincipal).to.equal(borrowAmount.mul(2));
       expect(position.liquidatable).to.equal(false);
     });
@@ -393,37 +468,39 @@ describe("LendingMarket", () => {
     let borrowAmount: BigNumber;
 
     beforeEach(async () => {
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
 
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       borrowAmount = position.creditLimitUSD;
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
 
       await airUSD
         .connect(user)
-        .approve(lendingMarket.address, borrowAmount.div(2));
+        .approve(lendingMarketV2.address, borrowAmount.div(2));
     });
 
     it("Revert: invalid token", async () => {
       await expect(
-        lendingMarket.connect(user).repay(STETH, borrowAmount.div(2))
+        lendingMarketV2.connect(user).repay(STETH, borrowAmount.div(2))
       ).to.revertedWith("invalid token");
     });
 
     it("Revert: invalid amount", async () => {
-      await expect(lendingMarket.connect(user).repay(WETH, 0)).to.revertedWith(
-        "invalid amount"
-      );
+      await expect(
+        lendingMarketV2.connect(user).repay(WETH, 0)
+      ).to.revertedWith("invalid amount");
     });
 
     it("Success", async () => {
-      await lendingMarket.connect(user).repay(WETH, borrowAmount.div(2));
+      await lendingMarketV2.connect(user).repay(WETH, borrowAmount.div(2));
 
-      const position = await lendingMarket.positionView(user.address, WETH);
+      const position = await lendingMarketV2.positionView(user.address, WETH);
       expect(position.debtPrincipal).to.closeTo(
         borrowAmount.div(2),
         parseUnits("1") as any
@@ -433,36 +510,38 @@ describe("LendingMarket", () => {
 
   describe("withdraw", () => {
     beforeEach(async () => {
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
 
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD.div(3);
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
     });
 
     it("Revert: invalid token", async () => {
       await expect(
-        lendingMarket.connect(user).withdraw(STETH, parseUnits("0.5"))
+        lendingMarketV2.connect(user).withdraw(STETH, parseUnits("0.5"))
       ).to.revertedWith("invalid token");
     });
 
     it("Revert: insufficient collateral", async () => {
       await expect(
-        lendingMarket.connect(user).withdraw(WETH, parseUnits("1.1"))
+        lendingMarketV2.connect(user).withdraw(WETH, parseUnits("1.1"))
       ).to.revertedWith("insufficient collateral");
       await expect(
-        lendingMarket.connect(user).withdraw(WETH, parseUnits("0.75"))
+        lendingMarketV2.connect(user).withdraw(WETH, parseUnits("0.75"))
       ).to.revertedWith("insufficient collateral");
     });
 
     it("Success", async () => {
-      await lendingMarket.connect(user).withdraw(WETH, parseUnits("0.5"));
+      await lendingMarketV2.connect(user).withdraw(WETH, parseUnits("0.5"));
 
-      const position = await lendingMarket.positionView(user.address, WETH);
+      const position = await lendingMarketV2.positionView(user.address, WETH);
       expect(position.amount).to.equal(parseUnits("0.5"));
     });
   });
@@ -472,37 +551,39 @@ describe("LendingMarket", () => {
       // prepare 1M airUSD in stable pool for liquidation
       await airUSD.mint(stablePool.address, parseUnits("1000000"));
 
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
 
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD;
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
     });
 
     it("Revert: not keeper", async () => {
-      await expect(lendingMarket.liquidate(user.address, WETH)).to.revertedWith(
-        "not keeper"
-      );
+      await expect(
+        lendingMarketV2.liquidate(user.address, WETH)
+      ).to.revertedWith("not keeper");
     });
 
     it("Revert: invalid token", async () => {
       await lendingAddressRegistry.addKeeper(deployer.address);
 
       await expect(
-        lendingMarket.liquidate(user.address, STETH)
+        lendingMarketV2.liquidate(user.address, STETH)
       ).to.revertedWith("invalid token");
     });
 
     it("Revert: not liquidatable", async () => {
       await lendingAddressRegistry.addKeeper(deployer.address);
 
-      await expect(lendingMarket.liquidate(user.address, WETH)).to.revertedWith(
-        "not liquidatable"
-      );
+      await expect(
+        lendingMarketV2.liquidate(user.address, WETH)
+      ).to.revertedWith("not liquidatable");
     });
 
     it("Success", async () => {
@@ -537,7 +618,7 @@ describe("LendingMarket", () => {
         parseUnits(WETH_PRICE, 8).mul(90).div(100)
       );
 
-      expect(await lendingMarket.liquidatable(user.address, WETH)).to.be.true;
+      expect(await lendingMarketV2.liquidatable(user.address, WETH)).to.be.true;
 
       // check liquidatable from liquidation bot
       result = await liquidationBot.checkUpkeep(
@@ -554,7 +635,7 @@ describe("LendingMarket", () => {
 
       await liquidationBot.connect(bot).performUpkeep(result.performData);
 
-      const position = await lendingMarket.positionView(user.address, WETH);
+      const position = await lendingMarketV2.positionView(user.address, WETH);
       expect(position.amount).to.equal(0);
 
       // take fees into stable pool
@@ -573,19 +654,21 @@ describe("LendingMarket", () => {
       // prepare 1M airUSD in stable pool for liquidation
       await airUSD.mint(stablePool.address, parseUnits("1000000"));
 
-      await weth.connect(user).approve(lendingMarket.address, parseUnits("1"));
-      await lendingMarket
+      await weth
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("1"));
+      await lendingMarketV2
         .connect(user)
         .deposit(WETH, parseUnits("1"), user.address);
 
-      let position = await lendingMarket.positionView(user.address, WETH);
+      let position = await lendingMarketV2.positionView(user.address, WETH);
 
       const borrowAmount = position.creditLimitUSD;
-      await lendingMarket.connect(user).borrow(WETH, borrowAmount);
+      await lendingMarketV2.connect(user).borrow(WETH, borrowAmount);
     });
 
     it("Success", async () => {
-      await lendingMarket.collectOrgFee();
+      await lendingMarketV2.collectOrgFee();
     });
   });
 });

@@ -37,7 +37,6 @@ contract StethAirUSDSwapper is ISwapperImpl {
         override
         returns (uint256 amountOut)
     {
-        IERC20(stETH).safeTransferFrom(msg.sender, address(this), _amountIn);
         IERC20(stETH).safeApprove(stETHCurve, _amountIn);
 
         // considering stETH is rebase token

@@ -139,10 +139,7 @@ describe("LendingMarket", () => {
       await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", WETH)
     );
     steth = <IERC20>(
-      await ethers.getContractAt(
-        "contracts/external/IERC20.sol:IERC20",
-        STETH
-      )
+      await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", STETH)
     );
     ethUsdtLp = <IERC20>(
       await ethers.getContractAt(
@@ -165,6 +162,7 @@ describe("LendingMarket", () => {
 
     // weth swapper impl
     const wethSwapperImpl = await deployUniswapV2Swapper(
+      swapper.address,
       UNISWAP_V2_ROUTER,
       WETH,
       airUSD.address,
