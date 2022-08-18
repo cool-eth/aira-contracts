@@ -6,6 +6,8 @@ import { deployments, ethers, network } from "hardhat";
 import { deployContract } from "../../helper/contracts";
 import {
   AirUSD,
+  IBaseRewardPool,
+  IBaseRewardPool__factory,
   IERC20,
   IUniswapV2Router,
   LendingAddressRegistry,
@@ -34,10 +36,13 @@ const DAI = "0x6b175474e89094c44da98b954eedeac495271d0f";
 const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 const MIM = "0x99D8a9C45b2ecA8864373A26D1459e3Dff1e17F3";
 const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+const CURVE = "0xD533a949740bb3306d119CC777fa900bA034cd52";
+const CONVEX = "0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B";
 
 describe("LendingMarketV2 with Convex", () => {
   let deployer: SignerWithAddress,
     user: SignerWithAddress,
+    otherUser: SignerWithAddress,
     bot: SignerWithAddress,
     treasury: SignerWithAddress,
     staking: SignerWithAddress;
@@ -51,10 +56,11 @@ describe("LendingMarketV2 with Convex", () => {
   let swapper: Swapper;
   let priceOracleAggregator: PriceOracleAggregator;
   let curveMimOracle: MockChainlinkUSDAdapter;
-  let mimLp: IERC20;
+  let mimLp: IERC20, curve: IERC20, convex: IERC20;
 
   before(async () => {
-    [deployer, user, bot, treasury, staking] = await ethers.getSigners();
+    [deployer, user, otherUser, bot, treasury, staking] =
+      await ethers.getSigners();
 
     await deployments.fixture("SetRegistry");
 
@@ -138,6 +144,8 @@ describe("LendingMarketV2 with Convex", () => {
     );
 
     await lendingVaultRewarder.initialize(lendingVault.address);
+    await lendingVaultRewarder.addRewardToken(CURVE);
+    await lendingVaultRewarder.addRewardToken(CONVEX);
 
     // set treasury and staking address
     await lendingAddressRegistry.setTreasury(treasury.address);
@@ -159,6 +167,12 @@ describe("LendingMarketV2 with Convex", () => {
         "contracts/external/IERC20.sol:IERC20",
         CURVE_MIM_LP
       )
+    );
+    curve = <IERC20>(
+      await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", CURVE)
+    );
+    convex = <IERC20>(
+      await ethers.getContractAt("contracts/external/IERC20.sol:IERC20", CONVEX)
     );
 
     // curve mim lp swapper impl
@@ -863,6 +877,44 @@ describe("LendingMarketV2 with Convex", () => {
 
     it("Success", async () => {
       await lendingMarketV2.collectOrgFee();
+    });
+  });
+
+  describe("claim", () => {
+    beforeEach(async () => {
+      await mimLp
+        .connect(user)
+        .approve(lendingMarketV2.address, parseUnits("10"));
+    });
+
+    it("success", async () => {
+      await lendingMarketV2
+        .connect(user)
+        .deposit(CURVE_MIM_LP, parseUnits("1"), user.address);
+      await lendingMarketV2
+        .connect(user)
+        .deposit(CURVE_MIM_LP, parseUnits("1"), otherUser.address);
+
+      await ethers.provider.send("evm_increaseTime", [60 * 60 * 24]); // 24 hour
+      await ethers.provider.send("evm_mine", []);
+
+      const convexRewards = IBaseRewardPool__factory.connect(
+        CONVEX_MIM_REWARDS,
+        user
+      );
+      expect(await convexRewards.earned(lendingVault.address)).to.gt(0);
+
+      await lendingVault.claim(user.address);
+      await lendingVault.claim(otherUser.address);
+
+      expect(await curve.balanceOf(user.address)).to.closeTo(
+        await curve.balanceOf(otherUser.address),
+        (await curve.balanceOf(otherUser.address)).div(100) as any
+      ); // 1% diff
+      expect(await convex.balanceOf(user.address)).to.closeTo(
+        await convex.balanceOf(otherUser.address),
+        (await convex.balanceOf(otherUser.address)).div(100) as any
+      ); // 1% diff
     });
   });
 });
