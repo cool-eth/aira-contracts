@@ -89,6 +89,9 @@ contract LendingVaultVelodrome is LendingVaultBase {
         // claim rewards
         uint256 length = IVelodromeGauge(gauge).rewardsListLength();
         address[] memory rewardTokens = new address[](length);
+        for (uint256 i = 0; i < length; i++) {
+            rewardTokens[i] = IVelodromeGauge(gauge).rewards(i);
+        }
         IVelodromeGauge(gauge).getReward(address(this), rewardTokens);
 
         // transfer rewards to rewarder

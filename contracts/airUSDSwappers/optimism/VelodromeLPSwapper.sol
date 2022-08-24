@@ -58,6 +58,7 @@ contract VelodromeLPSwapper is ISwapperImpl {
 
         uint256 token0Balance = IERC20(token0).balanceOf(address(this));
         if (token0Balance > 0) {
+            IERC20(token0).safeApprove(swapper, token0Balance);
             amountOut += ISwapper(swapper).swap(
                 token0,
                 tokenOut,
@@ -68,6 +69,7 @@ contract VelodromeLPSwapper is ISwapperImpl {
 
         uint256 token1Balance = IERC20(token1).balanceOf(address(this));
         if (token1Balance > 0) {
+            IERC20(token1).safeApprove(swapper, token1Balance);
             amountOut += ISwapper(swapper).swap(
                 token1,
                 tokenOut,
