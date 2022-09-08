@@ -75,15 +75,7 @@ describe("LendingMarketV2", () => {
                 interestApr: {
                   numerator: "10",
                   denominator: "1000",
-                }, // 1% interest APR
-                orgFeeRate: {
-                  numerator: "3",
-                  denominator: "1000",
-                }, // 0.3% org fee rate
-                liquidationPenalty: {
-                  numerator: "50",
-                  denominator: "1000",
-                }, // 5% liquidation penalty
+                }, // 1% interest APR],
               },
             ],
           },
@@ -197,6 +189,14 @@ describe("LendingMarketV2", () => {
         numerator: 75,
         denominator: 100,
       }, // 75%
+      {
+        numerator: "3",
+        denominator: "1000",
+      }, // 0.3% org fee rate
+      {
+        numerator: "50",
+        denominator: "1000",
+      }, // 5% liquidation penalty
       parseUnits("2000")
     );
   });
@@ -249,6 +249,14 @@ describe("LendingMarketV2", () => {
             numerator: 75,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("Ownable: caller is not the owner");
@@ -267,6 +275,14 @@ describe("LendingMarketV2", () => {
             numerator: 75,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("invalid rate");
@@ -285,6 +301,14 @@ describe("LendingMarketV2", () => {
             numerator: 101,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("invalid rate");
@@ -303,6 +327,14 @@ describe("LendingMarketV2", () => {
             numerator: 75,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("already enabled collateral token");
@@ -320,6 +352,14 @@ describe("LendingMarketV2", () => {
           numerator: 75,
           denominator: 100,
         }, // 75%
+        {
+          numerator: "3",
+          denominator: "1000",
+        }, // 0.3% org fee rate
+        {
+          numerator: "50",
+          denominator: "1000",
+        }, // 5% liquidation penalty
         parseUnits("2000")
       );
 
@@ -357,6 +397,14 @@ describe("LendingMarketV2", () => {
           numerator: 75,
           denominator: 100,
         }, // 75%
+        {
+          numerator: "3",
+          denominator: "1000",
+        }, // 0.3% org fee rate
+        {
+          numerator: "50",
+          denominator: "1000",
+        }, // 5% liquidation penalty
         parseUnits("2000")
       );
 

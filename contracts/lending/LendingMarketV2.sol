@@ -48,8 +48,6 @@ contract LendingMarketV2 is
     /// @notice A struct for lending market settings
     struct MarketSettings {
         Rate interestApr; // debt interest rate in APR
-        Rate orgFeeRate; // fees that will be charged upon minting AirUSD (0.3% in AirUSD)
-        Rate liquidationPenalty; // liquidation penalty fees (5%)
     }
 
     /// @notice A struct for collateral settings
@@ -57,6 +55,8 @@ contract LendingMarketV2 is
         CollateralStatus status; // collateral status (invalid, running, stopped)
         Rate creditLimitRate; // collateral borrow limit (e.g. USDs = 80%, BTCs = 70%, AVAXs=70%)
         Rate liqLimitRate; // collateral liquidation threshold rate (greater than credit limit rate)
+        Rate orgFeeRate; // fees that will be charged upon minting AirUSD (0.3% in AirUSD)
+        Rate liquidationPenalty; // liquidation penalty fees (5%)
         uint8 decimals; // collateral token decimals
         uint256 totalBorrowCap;
     }
@@ -128,8 +128,6 @@ contract LendingMarketV2 is
 
         // validates lending market settings
         _validateRate(_settings.interestApr); // should be updated to use cov ratio
-        _validateRate(_settings.orgFeeRate); // 0.3%
-        _validateRate(_settings.liquidationPenalty); // 5%
 
         addressProvider = ILendingAddressRegistry(_provider);
         airUSD = _airUSD;
@@ -161,6 +159,17 @@ contract LendingMarketV2 is
     }
 
     /**
+     * @notice set new settings
+     * @param _settings new settings
+     */
+    function setSettings(MarketSettings memory _settings) external onlyOwner {
+        // validates lending market settings
+        _validateRate(_settings.interestApr); // should be updated to use cov ratio
+
+        settings = _settings;
+    }
+
+    /**
      * @notice enable a new collateral token
      * @dev only owner can call this function
      * @param _token collateral token address
@@ -173,11 +182,15 @@ contract LendingMarketV2 is
         address _vault,
         Rate memory _creditLimitRate,
         Rate memory _liqLimitRate,
+        Rate memory _orgFeeRate,
+        Rate memory _liquidationPenalty,
         uint256 _totalBorrowCap
     ) external onlyOwner {
         // validates collateral settings
         _validateRate(_creditLimitRate);
         _validateRate(_liqLimitRate);
+        _validateRate(_orgFeeRate);
+        _validateRate(_liquidationPenalty);
 
         // check if collateral token already exists
         require(
@@ -190,6 +203,8 @@ contract LendingMarketV2 is
             status: CollateralStatus.Enabled,
             creditLimitRate: _creditLimitRate,
             liqLimitRate: _liqLimitRate,
+            orgFeeRate: _orgFeeRate,
+            liquidationPenalty: _liquidationPenalty,
             decimals: IERC20MetadataUpgradeable(_token).decimals(),
             totalBorrowCap: _totalBorrowCap
         });
@@ -208,11 +223,15 @@ contract LendingMarketV2 is
         address _token,
         Rate memory _creditLimitRate,
         Rate memory _liqLimitRate,
+        Rate memory _orgFeeRate,
+        Rate memory _liquidationPenalty,
         uint256 _totalBorrowCap
     ) external onlyOwner {
         // validates collateral settings
         _validateRate(_creditLimitRate);
         _validateRate(_liqLimitRate);
+        _validateRate(_orgFeeRate);
+        _validateRate(_liquidationPenalty);
 
         require(
             collateralSettings[_token].status != CollateralStatus.Invalid,
@@ -222,6 +241,8 @@ contract LendingMarketV2 is
         // update collateral token settings
         collateralSettings[_token].creditLimitRate = _creditLimitRate;
         collateralSettings[_token].liqLimitRate = _liqLimitRate;
+        collateralSettings[_token].orgFeeRate = _orgFeeRate;
+        collateralSettings[_token].liquidationPenalty = _liquidationPenalty;
         collateralSettings[_token].totalBorrowCap = _totalBorrowCap;
     }
 
@@ -340,8 +361,9 @@ contract LendingMarketV2 is
         );
 
         // calculate AirUSD mint fee
-        uint256 orgFee = (_airUSDAmount * settings.orgFeeRate.numerator) /
-            settings.orgFeeRate.denominator;
+        uint256 orgFee = (_airUSDAmount *
+            collateralSettings[_token].orgFeeRate.numerator) /
+            collateralSettings[_token].orgFeeRate.denominator;
         totalFeeCollected += orgFee;
 
         // mint AirUSD to user
@@ -506,8 +528,9 @@ contract LendingMarketV2 is
 
         // returnUSD = debtAmount + liquidation penalty (105%)
         uint256 returnUSD = debtAmount +
-            (debtAmount * settings.liquidationPenalty.numerator) /
-            settings.liquidationPenalty.denominator;
+            (debtAmount *
+                collateralSettings[_token].liquidationPenalty.numerator) /
+            collateralSettings[_token].liquidationPenalty.denominator;
 
         // collateral amount in returnUSD
         uint256 collateralAmountIn = (returnUSD *

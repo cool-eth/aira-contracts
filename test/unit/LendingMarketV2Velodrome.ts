@@ -85,14 +85,6 @@ describe("LendingMarketV2 with Velodrome", () => {
                   numerator: "10",
                   denominator: "1000",
                 }, // 1% interest APR
-                orgFeeRate: {
-                  numerator: "3",
-                  denominator: "1000",
-                }, // 0.3% org fee rate
-                liquidationPenalty: {
-                  numerator: "50",
-                  denominator: "1000",
-                }, // 5% liquidation penalty
               },
             ],
           },
@@ -277,7 +269,7 @@ describe("LendingMarketV2 with Velodrome", () => {
     await priceOracleAggregator.updateOracleForAsset(USDT, usdtOracle.address);
 
     // prepare 10 velodromeUsdcDaiLp
-    const whale = "0x9eE6f42531aDaC0bD443756F0120c6aEed354115";
+    const whale = "0x885341187ba7164481c13916d4023e9b50b38bea";
     await network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [whale],
@@ -299,6 +291,14 @@ describe("LendingMarketV2 with Velodrome", () => {
         numerator: 75,
         denominator: 100,
       }, // 75%
+      {
+        numerator: "3",
+        denominator: "1000",
+      }, // 0.3% org fee rate
+      {
+        numerator: "50",
+        denominator: "1000",
+      }, // 5% liquidation penalty
       parseUnits(VELODROME_USDC_DAI_LP_PRICE).div(30000)
     );
 
@@ -354,6 +354,14 @@ describe("LendingMarketV2 with Velodrome", () => {
             numerator: 75,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("Ownable: caller is not the owner");
@@ -372,6 +380,14 @@ describe("LendingMarketV2 with Velodrome", () => {
             numerator: 75,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("invalid rate");
@@ -390,6 +406,14 @@ describe("LendingMarketV2 with Velodrome", () => {
             numerator: 101,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("invalid rate");
@@ -408,6 +432,14 @@ describe("LendingMarketV2 with Velodrome", () => {
             numerator: 75,
             denominator: 100,
           }, // 75%
+          {
+            numerator: "3",
+            denominator: "1000",
+          }, // 0.3% org fee rate
+          {
+            numerator: "50",
+            denominator: "1000",
+          }, // 5% liquidation penalty
           parseUnits("2000")
         )
       ).to.revertedWith("already enabled collateral token");
@@ -425,6 +457,14 @@ describe("LendingMarketV2 with Velodrome", () => {
           numerator: 75,
           denominator: 100,
         }, // 75%
+        {
+          numerator: "3",
+          denominator: "1000",
+        }, // 0.3% org fee rate
+        {
+          numerator: "50",
+          denominator: "1000",
+        }, // 5% liquidation penalty
         parseUnits("2000")
       );
 
@@ -462,6 +502,14 @@ describe("LendingMarketV2 with Velodrome", () => {
           numerator: 75,
           denominator: 100,
         }, // 75%
+        {
+          numerator: "3",
+          denominator: "1000",
+        }, // 0.3% org fee rate
+        {
+          numerator: "50",
+          denominator: "1000",
+        }, // 5% liquidation penalty
         parseUnits("2000")
       );
 
