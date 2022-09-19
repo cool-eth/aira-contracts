@@ -15,8 +15,6 @@ import "../interfaces/ISwapper.sol";
 import "../interfaces/IAirUSD.sol";
 import "../interfaces/ILendingVault.sol";
 
-import "hardhat/console.sol";
-
 /**
  * @title LendingMarket
  * @notice Lending pools where users can deposit/withdraw collateral and borrow AirUSD.
@@ -45,24 +43,29 @@ contract LendingMarketV2 is
         uint128 denominator;
     }
 
-    /// @notice A struct for lending market settings
-    struct MarketSettings {
-        Rate interestApr; // debt interest rate in APR
-        Rate orgFeeRate; // fees that will be charged upon minting AirUSD (0.3% in AirUSD)
-        Rate liquidationPenalty; // liquidation penalty fees (5%)
-    }
-
     /// @notice A struct for collateral settings
     struct CollateralSetting {
         CollateralStatus status; // collateral status (invalid, running, stopped)
         Rate creditLimitRate; // collateral borrow limit (e.g. USDs = 80%, BTCs = 70%, AVAXs=70%)
+        Rate interestApr; // debt interest rate in APR
+        Rate orgFeeRate; // fees that will be charged upon minting AirUSD (0.3% in AirUSD)
         Rate liqLimitRate; // collateral liquidation threshold rate (greater than credit limit rate)
+        Rate liquidationPenalty; // liquidation penalty fees (5%)
         uint8 decimals; // collateral token decimals
+        /// @notice airUSD total borrows per collateral token
+        uint256 totalBorrows;
+        /// @notice total borrow cap
         uint256 totalBorrowCap;
+        /// @notice total borrowed amount accrued so far
+        uint256 totalDebtAmount;
+        /// @notice last time of debt accrued
+        uint256 totalDebtAccruedAt;
+        /// @notice total borrowed portion
+        uint256 totalDebtPortion;
     }
 
     /// @notice A struct for users collateral position
-    struct Position {
+    struct UserDebtPosition {
         uint256 debtPrincipal; // debt amount
         uint256 debtPortion; // accumulated debt interest
     }
@@ -87,8 +90,6 @@ contract LendingMarketV2 is
     ILendingAddressRegistry public addressProvider;
     /// @notice AirUSD token address
     IAirUSD public airUSD;
-    /// @notice lending market settings
-    MarketSettings public settings;
     /// @notice collateral tokens in array
     address[] public collateralTokens;
     /// @notice collateral settings
@@ -96,19 +97,12 @@ contract LendingMarketV2 is
     /// @notice lending vault contract of collateral token
     mapping(address => ILendingVault) public lendingVault; // token => lending vault
     /// @notice users debt position by collateral token
-    mapping(address => mapping(address => Position)) internal userPositions; // user => collateral token => debt position
-    /// @notice airUSD total borrows per collateral token
-    mapping(address => uint256) public totalBorrowsPerCollateral;
+    mapping(address => mapping(address => UserDebtPosition))
+        internal userDebtPositions; // user => collateral token => debt position
     /// @notice users per collateral token
     mapping(address => EnumerableSetUpgradeable.AddressSet)
         internal marketUsers; // collateral token => users set
 
-    /// @notice total borrowed amount accrued so far
-    uint256 public totalDebtAmount;
-    /// @notice last time of debt accrued
-    uint256 public totalDebtAccruedAt;
-    /// @notice total borrowed portion
-    uint256 public totalDebtPortion;
     /// @notice total protocol fees accrued so far
     uint256 public totalFeeCollected;
 
@@ -116,39 +110,31 @@ contract LendingMarketV2 is
      * @notice Initializer.
      * @param _provider address provider
      * @param _airUSD AirUSD token address
-     * @param _settings lending market settings
      */
-    function initialize(
-        address _provider,
-        IAirUSD _airUSD,
-        MarketSettings memory _settings
-    ) external initializer {
+    function initialize(address _provider, IAirUSD _airUSD)
+        external
+        initializer
+    {
         __Ownable_init();
         __ReentrancyGuard_init();
 
-        // validates lending market settings
-        _validateRate(_settings.interestApr); // should be updated to use cov ratio
-        _validateRate(_settings.orgFeeRate); // 0.3%
-        _validateRate(_settings.liquidationPenalty); // 5%
-
         addressProvider = ILendingAddressRegistry(_provider);
         airUSD = _airUSD;
-        settings = _settings;
     }
 
     /**
      * @notice accrue debt interest
      * @dev Updates the contract's state by calculating the additional interest accrued since the last time
      */
-    function accrue() public {
+    function accrue(address _token) public {
         // calculate additional interest from last time
-        uint256 additionalInterest = _calculateInterestFromLastTime();
+        uint256 additionalInterest = _calculateInterestFromLastTime(_token);
 
         // set last time accrued
-        totalDebtAccruedAt = block.timestamp;
-
+        collateralSettings[_token].totalDebtAccruedAt = block.timestamp;
         // plus additional interest
-        totalDebtAmount += additionalInterest;
+        collateralSettings[_token].totalDebtAmount += additionalInterest;
+
         totalFeeCollected += additionalInterest;
     }
 
@@ -172,12 +158,18 @@ contract LendingMarketV2 is
         address _token,
         address _vault,
         Rate memory _creditLimitRate,
+        Rate memory _interestApr,
+        Rate memory _orgFeeRate,
         Rate memory _liqLimitRate,
+        Rate memory _liquidationPenalty,
         uint256 _totalBorrowCap
     ) external onlyOwner {
         // validates collateral settings
         _validateRate(_creditLimitRate);
+        _validateRate(_interestApr);
+        _validateRate(_orgFeeRate);
         _validateRate(_liqLimitRate);
+        _validateRate(_liquidationPenalty);
 
         // check if collateral token already exists
         require(
@@ -189,9 +181,16 @@ contract LendingMarketV2 is
         collateralSettings[_token] = CollateralSetting({
             status: CollateralStatus.Enabled,
             creditLimitRate: _creditLimitRate,
+            interestApr: _interestApr,
+            orgFeeRate: _orgFeeRate,
             liqLimitRate: _liqLimitRate,
+            liquidationPenalty: _liquidationPenalty,
             decimals: IERC20MetadataUpgradeable(_token).decimals(),
-            totalBorrowCap: _totalBorrowCap
+            totalBorrows: 0,
+            totalBorrowCap: _totalBorrowCap,
+            totalDebtAmount: 0,
+            totalDebtAccruedAt: block.timestamp,
+            totalDebtPortion: 0
         });
         lendingVault[_token] = ILendingVault(_vault);
         collateralTokens.push(_token);
@@ -207,12 +206,18 @@ contract LendingMarketV2 is
     function updateCollateralToken(
         address _token,
         Rate memory _creditLimitRate,
+        Rate memory _interestApr,
+        Rate memory _orgFeeRate,
         Rate memory _liqLimitRate,
+        Rate memory _liquidationPenalty,
         uint256 _totalBorrowCap
     ) external onlyOwner {
         // validates collateral settings
         _validateRate(_creditLimitRate);
+        _validateRate(_interestApr);
+        _validateRate(_orgFeeRate);
         _validateRate(_liqLimitRate);
+        _validateRate(_liquidationPenalty);
 
         require(
             collateralSettings[_token].status != CollateralStatus.Invalid,
@@ -221,7 +226,10 @@ contract LendingMarketV2 is
 
         // update collateral token settings
         collateralSettings[_token].creditLimitRate = _creditLimitRate;
+        collateralSettings[_token].interestApr = _interestApr;
+        collateralSettings[_token].orgFeeRate = _orgFeeRate;
         collateralSettings[_token].liqLimitRate = _liqLimitRate;
+        collateralSettings[_token].liquidationPenalty = _liquidationPenalty;
         collateralSettings[_token].totalBorrowCap = _totalBorrowCap;
     }
 
@@ -266,8 +274,6 @@ contract LendingMarketV2 is
      * @dev only owner can call this function
      */
     function collectOrgFee() external nonReentrant onlyOwner {
-        accrue();
-
         // collect protocol fees in AirUSD
         _transferFee(totalFeeCollected, true);
         totalFeeCollected = 0;
@@ -314,13 +320,11 @@ contract LendingMarketV2 is
         external
         nonReentrant
     {
+        CollateralSetting storage setting = collateralSettings[_token];
         // check if collateral is valid
-        require(
-            collateralSettings[_token].status == CollateralStatus.Enabled,
-            "not enabled"
-        );
+        require(setting.status == CollateralStatus.Enabled, "not enabled");
 
-        accrue();
+        accrue(_token);
 
         // calculate borrow limit in USD
         uint256 creditLimit = _creditLimitUSD(msg.sender, _token);
@@ -334,35 +338,36 @@ contract LendingMarketV2 is
         );
 
         require(
-            totalBorrowsPerCollateral[_token] + _airUSDAmount <=
-                collateralSettings[_token].totalBorrowCap,
+            setting.totalBorrows + _airUSDAmount <= setting.totalBorrowCap,
             "borrow cap reached"
         );
 
         // calculate AirUSD mint fee
-        uint256 orgFee = (_airUSDAmount * settings.orgFeeRate.numerator) /
-            settings.orgFeeRate.denominator;
+        uint256 orgFee = (_airUSDAmount * setting.orgFeeRate.numerator) /
+            setting.orgFeeRate.denominator;
         totalFeeCollected += orgFee;
 
         // mint AirUSD to user
         airUSD.mint(msg.sender, _airUSDAmount - orgFee);
 
         // update user's collateral position
-        Position storage position = userPositions[msg.sender][_token];
-        if (totalDebtPortion == 0) {
-            totalDebtPortion = _airUSDAmount;
+        UserDebtPosition storage position = userDebtPositions[msg.sender][
+            _token
+        ];
+        if (setting.totalDebtPortion == 0) {
+            setting.totalDebtPortion = _airUSDAmount;
             position.debtPortion = _airUSDAmount;
         } else {
-            uint256 plusPortion = (totalDebtPortion * _airUSDAmount) /
-                totalDebtAmount;
-            totalDebtPortion += plusPortion;
+            uint256 plusPortion = (setting.totalDebtPortion * _airUSDAmount) /
+                setting.totalDebtAmount;
+            setting.totalDebtPortion += plusPortion;
             position.debtPortion += plusPortion;
         }
         position.debtPrincipal += _airUSDAmount;
-        totalDebtAmount += _airUSDAmount;
+        setting.totalDebtAmount += _airUSDAmount;
 
         // increase total borrows of the collateral market
-        totalBorrowsPerCollateral[_token] += _airUSDAmount;
+        setting.totalBorrows += _airUSDAmount;
 
         // check if new market user enters
         if (!marketUsers[_token].contains(msg.sender)) {
@@ -379,13 +384,12 @@ contract LendingMarketV2 is
      * @param _amount collateral amount to withdraw
      */
     function withdraw(address _token, uint256 _amount) external nonReentrant {
-        // check if collateral is valid
-        require(
-            collateralSettings[_token].status != CollateralStatus.Invalid,
-            "invalid token"
-        );
+        CollateralSetting storage setting = collateralSettings[_token];
 
-        accrue();
+        // check if collateral is valid
+        require(setting.status != CollateralStatus.Invalid, "invalid token");
+
+        accrue(_token);
 
         ILendingVault vault = lendingVault[_token];
 
@@ -395,8 +399,8 @@ contract LendingMarketV2 is
         uint256 creditLimitAfterWithdraw = (_tokenUSD(
             _token,
             vault.balanceOf(msg.sender)
-        ) * collateralSettings[_token].creditLimitRate.numerator) /
-            collateralSettings[_token].creditLimitRate.denominator;
+        ) * setting.creditLimitRate.numerator) /
+            setting.creditLimitRate.denominator;
         // calculate debt amount in USD
         uint256 debtAmount = _debtUSD(msg.sender, _token);
 
@@ -422,17 +426,17 @@ contract LendingMarketV2 is
         external
         nonReentrant
     {
+        CollateralSetting storage setting = collateralSettings[_token];
         // check if collateral is valid
-        require(
-            collateralSettings[_token].status != CollateralStatus.Invalid,
-            "invalid token"
-        );
+        require(setting.status != CollateralStatus.Invalid, "invalid token");
 
-        accrue();
+        accrue(_token);
 
         require(_airUSDAmount > 0, "invalid amount");
 
-        Position storage position = userPositions[msg.sender][_token];
+        UserDebtPosition storage position = userDebtPositions[msg.sender][
+            _token
+        ];
 
         // calculate debt amount in USD
         uint256 debtAmount = _debtUSD(msg.sender, _token);
@@ -451,10 +455,11 @@ contract LendingMarketV2 is
             : 0;
         uint256 minusPortion = paidPrincipal == debtPrincipal
             ? position.debtPortion
-            : (totalDebtPortion * _airUSDAmount) / totalDebtAmount;
+            : (setting.totalDebtPortion * _airUSDAmount) /
+                setting.totalDebtAmount;
 
-        totalDebtAmount -= _airUSDAmount;
-        totalDebtPortion -= minusPortion;
+        setting.totalDebtAmount -= _airUSDAmount;
+        setting.totalDebtPortion -= minusPortion;
         position.debtPrincipal -= paidPrincipal;
         position.debtPortion -= minusPortion;
 
@@ -466,7 +471,7 @@ contract LendingMarketV2 is
         }
 
         // decrease total borrows of the collateral market (exclude only principls)
-        totalBorrowsPerCollateral[_token] -= paidPrincipal;
+        setting.totalBorrows -= paidPrincipal;
 
         emit Repay(msg.sender, _airUSDAmount);
     }
@@ -476,17 +481,15 @@ contract LendingMarketV2 is
         override
         nonReentrant
     {
+        CollateralSetting storage setting = collateralSettings[_token];
         // check if msg.sender is chainlink keeper
         require(addressProvider.isKeeper(msg.sender), "not keeper");
         // check if collateral is valid
-        require(
-            collateralSettings[_token].status != CollateralStatus.Invalid,
-            "invalid token"
-        );
+        require(setting.status != CollateralStatus.Invalid, "invalid token");
 
-        accrue();
+        accrue(_token);
 
-        Position storage position = userPositions[_user][_token];
+        UserDebtPosition storage position = userDebtPositions[_user][_token];
         // calculate debt amount in USD
         uint256 debtAmount = _debtUSD(_user, _token);
 
@@ -506,12 +509,11 @@ contract LendingMarketV2 is
 
         // returnUSD = debtAmount + liquidation penalty (105%)
         uint256 returnUSD = debtAmount +
-            (debtAmount * settings.liquidationPenalty.numerator) /
-            settings.liquidationPenalty.denominator;
+            (debtAmount * setting.liquidationPenalty.numerator) /
+            setting.liquidationPenalty.denominator;
 
         // collateral amount in returnUSD
-        uint256 collateralAmountIn = (returnUSD *
-            (10**collateralSettings[_token].decimals)) /
+        uint256 collateralAmountIn = (returnUSD * (10**setting.decimals)) /
             price /
             10**10;
 
@@ -556,8 +558,8 @@ contract LendingMarketV2 is
         }
 
         // update total info
-        totalDebtAmount -= debtAmount;
-        totalDebtPortion -= position.debtPortion;
+        setting.totalDebtAmount -= debtAmount;
+        setting.totalDebtPortion -= position.debtPortion;
 
         // remove user position
         position.debtPortion = 0;
@@ -576,14 +578,17 @@ contract LendingMarketV2 is
         override
         returns (PositionView memory)
     {
-        Position memory position = userPositions[_user][_token];
+        UserDebtPosition memory position = userDebtPositions[_user][_token];
+        CollateralSetting memory setting = collateralSettings[_token];
 
         // this is a copy from _debtUSD but should include additional-interest calculation
-        uint256 debtCalculated = totalDebtPortion == 0
+        uint256 debtCalculated = setting.totalDebtPortion == 0
             ? 0
-            : ((totalDebtAmount + _calculateInterestFromLastTime()) *
-                userPositions[_user][_token].debtPortion) / totalDebtPortion;
-        uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
+            : ((setting.totalDebtAmount +
+                _calculateInterestFromLastTime(_token)) *
+                userDebtPositions[_user][_token].debtPortion) /
+                setting.totalDebtPortion;
+        uint256 debtPrincipal = userDebtPositions[_user][_token].debtPrincipal;
         uint256 debtAmount = debtPrincipal > debtCalculated
             ? debtPrincipal
             : debtCalculated;
@@ -608,12 +613,15 @@ contract LendingMarketV2 is
         override
         returns (bool)
     {
+        CollateralSetting memory setting = collateralSettings[_token];
         // this is a copy from _debtUSD but should include additional-interest calculation
-        uint256 debtCalculated = totalDebtPortion == 0
+        uint256 debtCalculated = setting.totalDebtPortion == 0
             ? 0
-            : ((totalDebtAmount + _calculateInterestFromLastTime()) *
-                userPositions[_user][_token].debtPortion) / totalDebtPortion;
-        uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
+            : ((setting.totalDebtAmount +
+                _calculateInterestFromLastTime(_token)) *
+                userDebtPositions[_user][_token].debtPortion) /
+                setting.totalDebtPortion;
+        uint256 debtPrincipal = userDebtPositions[_user][_token].debtPrincipal;
         uint256 debtAmount = debtPrincipal > debtCalculated
             ? debtPrincipal
             : debtCalculated;
@@ -662,14 +670,21 @@ contract LendingMarketV2 is
      * @notice calculate additional interest accrued from last time
      * @return The interest accrued from last time
      */
-    function _calculateInterestFromLastTime() internal view returns (uint256) {
+    function _calculateInterestFromLastTime(address token)
+        internal
+        view
+        returns (uint256)
+    {
         // calculate elapsed time from last accrued at
-        uint256 elapsedTime = block.timestamp - totalDebtAccruedAt;
+        uint256 elapsedTime = block.timestamp -
+            collateralSettings[token].totalDebtAccruedAt;
 
         // calculate interest based on elapsed time and interest APR
         return
-            (elapsedTime * totalDebtAmount * settings.interestApr.numerator) /
-            settings.interestApr.denominator /
+            (elapsedTime *
+                collateralSettings[token].totalDebtAmount *
+                collateralSettings[token].interestApr.numerator) /
+            collateralSettings[token].interestApr.denominator /
             365 days;
     }
 
@@ -742,11 +757,13 @@ contract LendingMarketV2 is
         view
         returns (uint256)
     {
-        uint256 debtCalculated = totalDebtPortion == 0
+        uint256 debtCalculated = collateralSettings[_token].totalDebtPortion ==
+            0
             ? 0
-            : (totalDebtAmount * userPositions[_user][_token].debtPortion) /
-                totalDebtPortion;
-        uint256 debtPrincipal = userPositions[_user][_token].debtPrincipal;
+            : (collateralSettings[_token].totalDebtAmount *
+                userDebtPositions[_user][_token].debtPortion) /
+                collateralSettings[_token].totalDebtPortion;
+        uint256 debtPrincipal = userDebtPositions[_user][_token].debtPrincipal;
 
         return debtPrincipal > debtCalculated ? debtPrincipal : debtCalculated; // consider of round at debt calculation
     }
