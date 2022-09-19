@@ -77,16 +77,7 @@ describe("LendingMarketV2 with Velodrome", () => {
           proxyContract: "OpenZeppelinTransparentProxy",
           execute: {
             methodName: "initialize",
-            args: [
-              lendingAddressRegistry.address,
-              airUSD.address,
-              {
-                interestApr: {
-                  numerator: "10",
-                  denominator: "1000",
-                }, // 1% interest APR
-              },
-            ],
+            args: [lendingAddressRegistry.address, airUSD.address],
           },
         },
       })
@@ -269,7 +260,7 @@ describe("LendingMarketV2 with Velodrome", () => {
     await priceOracleAggregator.updateOracleForAsset(USDT, usdtOracle.address);
 
     // prepare 10 velodromeUsdcDaiLp
-    const whale = "0x885341187ba7164481c13916d4023e9b50b38bea";
+    const whale = "0x137b29e5a530245928d165b51edb72021e294bbd";
     await network.provider.request({
       method: "hardhat_impersonateAccount",
       params: [whale],
@@ -288,13 +279,17 @@ describe("LendingMarketV2 with Velodrome", () => {
         denominator: 100,
       }, // 70%
       {
-        numerator: 75,
-        denominator: 100,
-      }, // 75%
+        numerator: "10",
+        denominator: "1000",
+      }, // 1% interest APR
       {
         numerator: "3",
         denominator: "1000",
       }, // 0.3% org fee rate
+      {
+        numerator: 75,
+        denominator: 100,
+      }, // 75%
       {
         numerator: "50",
         denominator: "1000",
@@ -351,13 +346,17 @@ describe("LendingMarketV2 with Velodrome", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 75,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 75,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -377,13 +376,17 @@ describe("LendingMarketV2 with Velodrome", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 75,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 75,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -403,13 +406,17 @@ describe("LendingMarketV2 with Velodrome", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 101,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 101,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -429,13 +436,17 @@ describe("LendingMarketV2 with Velodrome", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 75,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 75,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -454,13 +465,17 @@ describe("LendingMarketV2 with Velodrome", () => {
           denominator: 100,
         }, // 70%
         {
-          numerator: 75,
-          denominator: 100,
-        }, // 75%
+          numerator: "10",
+          denominator: "1000",
+        }, // 1% interest APR
         {
           numerator: "3",
           denominator: "1000",
         }, // 0.3% org fee rate
+        {
+          numerator: 75,
+          denominator: 100,
+        }, // 75%
         {
           numerator: "50",
           denominator: "1000",
@@ -499,13 +514,17 @@ describe("LendingMarketV2 with Velodrome", () => {
           denominator: 100,
         }, // 70%
         {
-          numerator: 75,
-          denominator: 100,
-        }, // 75%
+          numerator: "10",
+          denominator: "1000",
+        }, // 1% interest APR
         {
           numerator: "3",
           denominator: "1000",
         }, // 0.3% org fee rate
+        {
+          numerator: 75,
+          denominator: 100,
+        }, // 75%
         {
           numerator: "50",
           denominator: "1000",

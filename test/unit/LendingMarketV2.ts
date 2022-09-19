@@ -68,16 +68,7 @@ describe("LendingMarketV2", () => {
           proxyContract: "OpenZeppelinTransparentProxy",
           execute: {
             methodName: "initialize",
-            args: [
-              lendingAddressRegistry.address,
-              airUSD.address,
-              {
-                interestApr: {
-                  numerator: "10",
-                  denominator: "1000",
-                }, // 1% interest APR],
-              },
-            ],
+            args: [lendingAddressRegistry.address, airUSD.address],
           },
         },
       })
@@ -186,13 +177,17 @@ describe("LendingMarketV2", () => {
         denominator: 100,
       }, // 70%
       {
-        numerator: 75,
-        denominator: 100,
-      }, // 75%
+        numerator: "10",
+        denominator: "1000",
+      }, // 1% interest APR,
       {
         numerator: "3",
         denominator: "1000",
       }, // 0.3% org fee rate
+      {
+        numerator: 75,
+        denominator: 100,
+      }, // 75%
       {
         numerator: "50",
         denominator: "1000",
@@ -246,13 +241,17 @@ describe("LendingMarketV2", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 75,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR,
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 75,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -272,13 +271,17 @@ describe("LendingMarketV2", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 75,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR,
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 75,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -298,13 +301,17 @@ describe("LendingMarketV2", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 101,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR,
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 101,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -324,13 +331,17 @@ describe("LendingMarketV2", () => {
             denominator: 100,
           }, // 70%
           {
-            numerator: 75,
-            denominator: 100,
-          }, // 75%
+            numerator: "10",
+            denominator: "1000",
+          }, // 1% interest APR,
           {
             numerator: "3",
             denominator: "1000",
           }, // 0.3% org fee rate
+          {
+            numerator: 75,
+            denominator: 100,
+          }, // 75%
           {
             numerator: "50",
             denominator: "1000",
@@ -349,13 +360,17 @@ describe("LendingMarketV2", () => {
           denominator: 100,
         }, // 70%
         {
-          numerator: 75,
-          denominator: 100,
-        }, // 75%
+          numerator: "10",
+          denominator: "1000",
+        }, // 1% interest APR,
         {
           numerator: "3",
           denominator: "1000",
         }, // 0.3% org fee rate
+        {
+          numerator: 75,
+          denominator: 100,
+        }, // 75%
         {
           numerator: "50",
           denominator: "1000",
@@ -394,13 +409,17 @@ describe("LendingMarketV2", () => {
           denominator: 100,
         }, // 70%
         {
-          numerator: 75,
-          denominator: 100,
-        }, // 75%
+          numerator: "10",
+          denominator: "1000",
+        }, // 1% interest APR,
         {
           numerator: "3",
           denominator: "1000",
         }, // 0.3% org fee rate
+        {
+          numerator: 75,
+          denominator: 100,
+        }, // 75%
         {
           numerator: "50",
           denominator: "1000",
